@@ -1,6 +1,18 @@
 import { browser } from 'wxt/browser'
 import { defineContentScript } from 'wxt/sandbox'
 
+export default defineContentScript({
+  matches: ['*://civitai.com/*', '*://civitai.red/*'],
+  runAt: 'document_idle',
+  main() {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init)
+    } else {
+      init()
+    }
+  },
+})
+
 interface PageData {
   modelVersionId: string | null
   fileId: string | null
@@ -81,6 +93,12 @@ function injectDownloadButton(data: PageData) {
       if (result?.id) {
         showToast('✅ Задача отправлена: ' + data.modelName, 'success')
         btn.textContent = '✅ Отправлено'
+        setTimeout(() => {
+          btn.textContent = '⬇ Скачать в Lora Manager'
+        }, 5000)
+      } else if (result?.code) {
+        showToast('❌ ' + getErrorMessage(result.code, result.error), 'error')
+        btn.textContent = '⬇ Скачать в Lora Manager'
       } else {
         showToast('❌ Ошибка: ' + (result?.error || 'Неизвестная ошибка'), 'error')
         btn.textContent = '⬇ Скачать в Lora Manager'
@@ -96,7 +114,21 @@ function injectDownloadButton(data: PageData) {
   container.appendChild(btn)
 }
 
-function showToast(message: string, type: 'success' | 'error') {
+function getErrorMessage(code: string, fallback: string): string {
+  const messages: Record<string, string> = {
+    UNAUTHORIZED: 'Неверный API-ключ. Проверьте ключ в настройках расширения.',
+    FORBIDDEN: 'Нет доступа к модели. Возможно, модель приватная.',
+    NOT_FOUND: 'Модель не найдена. Возможно, она была удалена.',
+    RATE_LIMITED: 'Civitai ограничил запросы. Попробуйте позже.',
+    CLOUDFLARE: 'Cloudflare защита. Повторите попытку через минуту.',
+    NETWORK: 'Сервер недоступен. Запущен ли Civitai Smart Downloader?',
+    INVALID_REQUEST: 'Некорректный запрос. Обновите расширение.',
+    SERVER_ERROR: 'Ошибка сервера. Проверьте логи приложения.',
+  }
+  return messages[code] || fallback || 'Неизвестная ошибка'
+}
+
+function showToast(message: string, type: 'success' | 'error' | 'warning') {
   const toast = document.createElement('div')
   toast.textContent = message
   toast.style.cssText = [
@@ -111,7 +143,11 @@ function showToast(message: string, type: 'success' | 'error') {
     'z-index: 99999',
     'box-shadow: 0 4px 12px rgba(0,0,0,0.2)',
     'animation: slideIn 0.3s ease',
-    type === 'success' ? 'background: #10b981' : 'background: #ef4444',
+    'max-width: 400px',
+    'word-wrap: break-word',
+    type === 'success' ? 'background: #10b981' : '',
+    type === 'error' ? 'background: #ef4444' : '',
+    type === 'warning' ? 'background: #f59e0b' : '',
   ].join(';')
 
   const style = document.createElement('style')
@@ -129,25 +165,14 @@ function showToast(message: string, type: 'success' | 'error') {
     toast.style.transition = 'opacity 0.3s'
     toast.style.opacity = '0'
     setTimeout(() => toast.remove(), 300)
-  }, 4000)
+  }, 6000)
 }
 
-export default defineContentScript({
-  matches: ['*://civitai.com/*', '*://civitai.red/*'],
-  runAt: 'document_idle',
-  main() {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => {
-        const data = extractPageData()
-        if (data && data.modelVersionId && data.fileId) {
-          injectDownloadButton(data)
-        }
-      })
-    } else {
-      const data = extractPageData()
-      if (data && data.modelVersionId && data.fileId) {
-        injectDownloadButton(data)
-      }
-    }
-  },
-})
+function init() {
+  if (typeof window === 'undefined' || !window.location) return
+
+  const data = extractPageData()
+  if (data && data.modelVersionId && data.fileId) {
+    injectDownloadButton(data)
+  }
+}

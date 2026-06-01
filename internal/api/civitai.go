@@ -32,6 +32,10 @@ type tRPCResponse struct {
 	Result struct {
 		Data json.RawMessage `json:"data"`
 	} `json:"result"`
+	Error *struct {
+		Message string `json:"message"`
+		Code    string `json:"code"`
+	} `json:"error,omitempty"`
 }
 
 type tRPCModelVersion struct {
@@ -56,7 +60,7 @@ func (c *CivitaiClient) FetchModelInfo(modelVersionID int, apiKey string) (*mode
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, models.ClassifyHTTPError(0, "Failed to create request: "+err.Error())
 	}
 
 	req.Header.Set("User-Agent", userAgent)
@@ -68,6 +72,13 @@ func (c *CivitaiClient) FetchModelInfo(modelVersionID int, apiKey string) (*mode
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		if models.IsNetworkError(err) {
+			return nil, models.NewAPIError(
+				models.ErrCodeNetwork,
+				fmt.Sprintf("Сетевая ошибка при подключении к Civitai: %s", err.Error()),
+				0, true,
+			)
+		}
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -78,17 +89,33 @@ func (c *CivitaiClient) FetchModelInfo(modelVersionID int, apiKey string) (*mode
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+		return nil, models.ClassifyHTTPError(resp.StatusCode, string(body))
 	}
 
 	var tRPCResp tRPCResponse
 	if err := json.Unmarshal(body, &tRPCResp); err != nil {
-		return nil, fmt.Errorf("parse tRPC: %w", err)
+		return nil, models.NewAPIError(
+			models.ErrCodeServerError,
+			"Ошибка парсинга ответа от Civitai: "+err.Error(),
+			resp.StatusCode, false,
+		)
+	}
+
+	if tRPCResp.Error != nil {
+		return nil, models.NewAPIError(
+			models.ErrCodeServerError,
+			"API Civitai вернул ошибку: "+tRPCResp.Error.Message,
+			resp.StatusCode, false,
+		)
 	}
 
 	var data tRPCModelVersion
 	if err := json.Unmarshal(tRPCResp.Result.Data, &data); err != nil {
-		return nil, fmt.Errorf("parse data: %w", err)
+		return nil, models.NewAPIError(
+			models.ErrCodeServerError,
+			"Ошибка парсинга данных модели: "+err.Error(),
+			0, false,
+		)
 	}
 
 	logger.Log.Debug("Fetched model info",

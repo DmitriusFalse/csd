@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const chunkSize = 1 * 1024 * 1024 // 1 MB
+const chunkSize = 1 * 1024 * 1024
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 type ProgressCallback func(downloaded, total int64)
@@ -50,12 +50,18 @@ func (d *Downloader) getFileSize(url string) (int64, error) {
 
 	resp, err := d.client.Do(req)
 	if err != nil {
+		if models.IsNetworkError(err) {
+			return 0, models.NewAPIError(
+				models.ErrCodeNetwork,
+				"Сетевая ошибка: "+err.Error(), 0, true,
+			)
+		}
 		return 0, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("HEAD request failed: %s", resp.Status)
+		return 0, models.ClassifyHTTPError(resp.StatusCode, "")
 	}
 
 	length := resp.Header.Get("Content-Length")
@@ -70,6 +76,7 @@ func (d *Downloader) Download(ctx context.Context, task *models.DownloadTask, on
 
 	totalBytes, err := d.getFileSize(downloadURL)
 	if err != nil {
+		logger.Log.Debug("HEAD request failed, proceeding without file size", zap.Error(err))
 		totalBytes = 0
 	}
 	task.FileSizeBytes = totalBytes
@@ -84,6 +91,7 @@ func (d *Downloader) Download(ctx context.Context, task *models.DownloadTask, on
 
 	var downloadedBytes int64
 	var file *os.File
+	var resume bool
 
 	stat, err := os.Stat(tempPath)
 	if err == nil && stat.Size() > 0 {
@@ -95,6 +103,7 @@ func (d *Downloader) Download(ctx context.Context, task *models.DownloadTask, on
 		if err != nil {
 			return fmt.Errorf("open partial file: %w", err)
 		}
+		resume = true
 	} else {
 		downloadedBytes = 0
 		file, err = os.Create(tempPath)
@@ -110,18 +119,54 @@ func (d *Downloader) Download(ctx context.Context, task *models.DownloadTask, on
 	}
 	req.Header.Set("User-Agent", userAgent)
 
-	if downloadedBytes > 0 {
+	if resume && downloadedBytes > 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", downloadedBytes))
+		logger.Log.Debug("Resuming download",
+			zap.Int64("offset", downloadedBytes),
+		)
 	}
 
 	resp, err := d.client.Do(req)
 	if err != nil {
+		if models.IsNetworkError(err) {
+			return models.NewAPIError(
+				models.ErrCodeNetwork,
+				"Сетевая ошибка при скачивании: "+err.Error(), 0, true,
+			)
+		}
 		return fmt.Errorf("download request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
+		logger.Log.Warn("Range not satisfiable, restarting download from scratch")
+		file.Close()
+		os.Remove(tempPath)
+		file, err = os.Create(tempPath)
+		if err != nil {
+			return fmt.Errorf("recreate temp file: %w", err)
+		}
+		downloadedBytes = 0
+		task.DownloadedBytes = 0
+		resume = false
+
+		req, err = http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
+		if err != nil {
+			return fmt.Errorf("create retry request: %w", err)
+		}
+		req.Header.Set("User-Agent", userAgent)
+		resp, err = d.client.Do(req)
+		if err != nil {
+			return fmt.Errorf("retry download request: %w", err)
+		}
+		defer resp.Body.Close()
+	}
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		return fmt.Errorf("download failed (status %d)", resp.StatusCode)
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+			return models.ClassifyHTTPError(resp.StatusCode, "")
+		}
+		return models.ClassifyHTTPError(resp.StatusCode, "")
 	}
 
 	if totalBytes == 0 {
@@ -174,6 +219,12 @@ func (d *Downloader) Download(ctx context.Context, task *models.DownloadTask, on
 			break
 		}
 		if readErr != nil {
+			if models.IsNetworkError(readErr) {
+				return models.NewAPIError(
+					models.ErrCodeNetwork,
+					"Обрыв соединения при скачивании: "+readErr.Error(), 0, true,
+				)
+			}
 			return fmt.Errorf("read error: %w", readErr)
 		}
 	}
@@ -183,7 +234,11 @@ func (d *Downloader) Download(ctx context.Context, task *models.DownloadTask, on
 	}
 
 	if totalBytes > 0 && downloadedBytes != totalBytes {
-		return fmt.Errorf("incomplete download: %d of %d bytes", downloadedBytes, totalBytes)
+		return models.NewAPIError(
+			models.ErrCodeDownloadIncomplete,
+			fmt.Sprintf("Загрузка неполная: %d из %d байт", downloadedBytes, totalBytes),
+			0, true,
+		)
 	}
 
 	if err := os.Rename(tempPath, task.SavePath); err != nil {
@@ -233,12 +288,10 @@ func ParseFileSize(text string) (int64, error) {
 	if len(parts) != 2 {
 		return 0, fmt.Errorf("invalid size: %s", text)
 	}
-
 	value, err := strconv.ParseFloat(parts[0], 64)
 	if err != nil {
 		return 0, err
 	}
-
 	unit := strings.ToUpper(parts[1])
 	switch unit {
 	case "B":

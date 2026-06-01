@@ -95,6 +95,13 @@ func (m *Manager) AddTask(req models.DownloadRequest) (*models.DownloadTask, err
 
 		info, err := m.civitaiClient.FetchModelInfo(req.ModelVersionID, apiKey)
 		if err != nil {
+			if apiErr, ok := err.(*models.APIError); ok {
+				logger.Log.Warn("Failed to fetch model info",
+					zap.String("code", string(apiErr.Code)),
+					zap.Error(err),
+				)
+				return nil, err
+			}
 			logger.Log.Warn("Failed to fetch model info, using provided values", zap.Error(err))
 		} else {
 			if modelType == "" {
@@ -109,7 +116,9 @@ func (m *Manager) AddTask(req models.DownloadRequest) (*models.DownloadTask, err
 			if len(info.Files) > 0 && task.FileName == "" {
 				task.FileName = info.Files[0].Name
 			}
-			task.FileSizeBytes = int64(info.Files[0].SizeKB * 1024)
+			if len(info.Files) > 0 {
+				task.FileSizeBytes = int64(info.Files[0].SizeKB * 1024)
+			}
 		}
 	}
 
@@ -148,7 +157,11 @@ func (m *Manager) startTask(task *models.DownloadTask) {
 	task.Status = models.StatusDownloading
 	now := time.Now()
 	task.StartedAt = &now
+	task.Error = ""
 	m.active++
+	attempt := 1
+	maxAttempts := m.cfg.Queue.RetryAttempts
+	retryDelay := m.cfg.Queue.RetryDelaySec
 	m.mu.Unlock()
 
 	logger.Log.Info("Download started",
@@ -157,28 +170,89 @@ func (m *Manager) startTask(task *models.DownloadTask) {
 		zap.String("url", fmt.Sprintf("civitai.com/api/download/models/%d", task.ModelVersionID)),
 	)
 
-	ctx, cancel := context.WithCancel(m.ctx)
-	defer cancel()
+	for attempt <= maxAttempts {
+		ctx, cancel := context.WithCancel(m.ctx)
+		err := m.downloader.Download(ctx, task, func(downloaded, total int64) {
+			m.notifyUpdate()
+		})
+		cancel()
 
-	err := m.downloader.Download(ctx, task, func(downloaded, total int64) {
-		m.notifyUpdate()
-	})
+		if err == nil {
+			break
+		}
 
-	m.mu.Lock()
-	m.active--
+		if models.IsDownloadCanceled(err) {
+			m.mu.Lock()
+			task.Status = models.StatusPaused
+			task.Error = "canceled"
+			m.active--
+			m.saveQueue()
+			m.mu.Unlock()
+			logger.Log.Info("Download paused by user", zap.String("id", task.ID))
+			m.notifyUpdate()
+			return
+		}
 
-	if err != nil {
+		if models.IsRetryable(err) && attempt < maxAttempts {
+			delay := time.Duration(retryDelay) * time.Second
+
+			apiErr, _ := err.(*models.APIError)
+			if apiErr != nil && apiErr.RetryAfter > 0 {
+				delay = time.Duration(apiErr.RetryAfter) * time.Second
+			}
+
+			logger.Log.Warn("Download failed, retrying",
+				zap.String("id", task.ID),
+				zap.Int("attempt", attempt),
+				zap.Int("max_attempts", maxAttempts),
+				zap.Duration("delay", delay),
+				zap.Error(err),
+			)
+
+			task.Error = fmt.Sprintf("Попытка %d: %s", attempt, err.Error())
+			m.notifyUpdate()
+
+			select {
+			case <-time.After(delay):
+			case <-m.ctx.Done():
+				m.mu.Lock()
+				task.Status = models.StatusPaused
+				task.Error = "shutdown"
+				m.active--
+				m.saveQueue()
+				m.mu.Unlock()
+				return
+			}
+
+			attempt++
+			continue
+		}
+
+		m.mu.Lock()
 		task.Status = models.StatusFailed
 		task.Error = err.Error()
-		logger.Log.Error("Download failed",
+		m.active--
+		logger.Log.Error("Download failed permanently",
 			zap.String("id", task.ID),
+			zap.Int("attempts", attempt),
 			zap.Error(err),
 		)
-	} else {
+		m.saveQueue()
+		m.processQueue()
+		m.mu.Unlock()
+		m.notifyUpdate()
+		return
+	}
+
+	m.mu.Lock()
+	if task.Status == models.StatusDownloading {
 		task.Status = models.StatusCompleted
 		now := time.Now()
 		task.CompletedAt = &now
 		task.Progress = 100
+		task.Error = ""
+		m.active--
+
 		logger.Log.Info("Download completed",
 			zap.String("id", task.ID),
 			zap.String("file", task.SavePath),
