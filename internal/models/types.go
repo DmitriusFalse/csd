@@ -34,6 +34,7 @@ type DownloadRequest struct {
 	FileSize       string `json:"fileSize,omitempty"`
 	APIKey         string `json:"apiKey,omitempty"`
 	Priority       int    `json:"priority,omitempty"`
+	PreviewImage   string `json:"previewImage,omitempty"`
 }
 
 type DownloadTask struct {
@@ -57,6 +58,13 @@ type DownloadTask struct {
 	AddedAt         time.Time      `json:"addedAt"`
 	StartedAt       *time.Time     `json:"startedAt,omitempty"`
 	CompletedAt     *time.Time     `json:"completedAt,omitempty"`
+	PreviewImage    string         `json:"previewImage,omitempty"`
+}
+
+type TasksResponse struct {
+	Active  []*DownloadTask `json:"active"`
+	Queued  []*DownloadTask `json:"queued"`
+	History []*DownloadTask `json:"history"`
 }
 
 type QueueState struct {

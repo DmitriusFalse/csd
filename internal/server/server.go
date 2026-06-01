@@ -1,10 +1,13 @@
 package server
 
 import (
-	"fmt"
 	"errors"
+	"fmt"
 	"net/http"
+	"os/exec"
+	"path/filepath"
 
+	"github.com/DmitriusFalse/csd/internal/config"
 	"github.com/DmitriusFalse/csd/internal/downloader"
 	"github.com/DmitriusFalse/csd/internal/models"
 	"github.com/gofiber/fiber/v2"
@@ -13,55 +16,52 @@ import (
 )
 
 type Server struct {
-	app     *fiber.App
-	manager *downloader.Manager
-	port    int
-	host    string
+	app        *fiber.App
+	manager    *downloader.Manager
+	port       int
+	host       string
+	configPath string
+	logPath    string
 }
 
-func New(host string, port int, manager *downloader.Manager) *Server {
+func New(host string, port int, manager *downloader.Manager, configPath, logPath string) *Server {
 	s := &Server{
 		app: fiber.New(fiber.Config{
 			DisableStartupMessage: true,
 			ErrorHandler:          errorHandler,
 		}),
-		manager: manager,
-		port:    port,
-		host:    host,
+		manager:    manager,
+		port:       port,
+		host:       host,
+		configPath: configPath,
+		logPath:    logPath,
 	}
 
-	s.app.Use(recover.New())
 	s.app.Use(cors.New(cors.Config{
 		AllowOrigins: "*",
-		AllowMethods: "GET, POST, PUT, DELETE, OPTIONS",
-		AllowHeaders: "Origin, Content-Type, Accept, X-Bridge-Secret",
+		AllowMethods: "GET,POST,PUT,DELETE",
 	}))
+	s.app.Use(recover.New())
 
 	s.setupRoutes()
-
 	return s
 }
 
 func errorHandler(c *fiber.Ctx, err error) error {
-	var apiErr *models.APIError
-	if errors.As(err, &apiErr) {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":      apiErr.Message,
-			"code":       apiErr.Code,
-			"retryable":  apiErr.Retryable,
-			"retryAfter": apiErr.RetryAfter,
-		})
+	code := fiber.StatusInternalServerError
+	if e, ok := err.(*fiber.Error); ok {
+		code = e.Code
 	}
-
-	return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-		"error":     err.Error(),
-		"code":      models.ErrCodeServerError,
-		"retryable": false,
-	})
+	return jsonError(c, code, models.NewAPIError(
+		models.ErrCodeServerError,
+		err.Error(),
+		code, false,
+	))
 }
 
-func jsonError(c *fiber.Ctx, statusCode int, apiErr *models.APIError) error {
-	return c.Status(statusCode).JSON(fiber.Map{
+func jsonError(c *fiber.Ctx, status int, apiErr *models.APIError) error {
+	c.Status(status)
+	return c.JSON(fiber.Map{
 		"error":      apiErr.Message,
 		"code":       apiErr.Code,
 		"retryable":  apiErr.Retryable,
@@ -86,6 +86,125 @@ func (s *Server) setupRoutes() {
 			"active": s.manager.GetActiveCount(),
 			"queued": s.manager.GetQueueLength(),
 		})
+	})
+
+	s.app.Get("/logs", func(c *fiber.Ctx) error {
+		if s.logPath == "" {
+			return c.Status(404).SendString("log file path not configured")
+		}
+		return c.SendFile(s.logPath)
+	})
+
+	s.app.Post("/logs/open", func(c *fiber.Ctx) error {
+		if s.logPath == "" {
+			return c.Status(404).JSON(fiber.Map{"error": "log path not configured"})
+		}
+		absPath, err := filepath.Abs(s.logPath)
+		if err == nil {
+			exec.Command("explorer", "/select,", absPath).Start()
+		}
+		return c.JSON(fiber.Map{"status": "opened"})
+	})
+
+	s.app.Get("/config", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "text/html; charset=utf-8")
+		return c.SendString(configPageHTML)
+	})
+
+	s.app.Get("/api/config", func(c *fiber.Ctx) error {
+		cfg, err := config.Load(s.configPath)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		key := cfg.APIKey
+		if len(key) > 4 {
+			key = key[:4] + "****"
+		} else if key != "" {
+			key = "****"
+		}
+		return c.JSON(fiber.Map{
+			"server":             cfg.Server,
+			"api_key":            key,
+			"root_path":          cfg.RootPath,
+			"max_concurrent":     cfg.Queue.MaxConcurrent,
+			"retry_attempts":     cfg.Queue.RetryAttempts,
+			"retry_delay_seconds": cfg.Queue.RetryDelaySec,
+			"allow_nsfw":         cfg.NSFW.AllowNSFW,
+			"separate_folder":    cfg.NSFW.SeparateFolder,
+			"save_json":          cfg.Metadata.SaveJSON,
+			"log_level":          cfg.Logging.Level,
+			"lora_enabled":       cfg.LoraMgr.Enabled,
+			"webhook_url":        cfg.LoraMgr.WebhookURL,
+		})
+	})
+
+	s.app.Post("/api/config", func(c *fiber.Ctx) error {
+		var updates map[string]interface{}
+		if err := c.BodyParser(&updates); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid json"})
+		}
+		cfg, err := config.Load(s.configPath)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		if v, ok := updates["root_path"]; ok {
+			if s, ok := v.(string); ok {
+				cfg.RootPath = s
+			}
+		}
+		if v, ok := updates["max_concurrent"]; ok {
+			if f, ok := v.(float64); ok {
+				cfg.Queue.MaxConcurrent = int(f)
+			}
+		}
+		if v, ok := updates["retry_attempts"]; ok {
+			if f, ok := v.(float64); ok {
+				cfg.Queue.RetryAttempts = int(f)
+			}
+		}
+		if v, ok := updates["retry_delay_seconds"]; ok {
+			if f, ok := v.(float64); ok {
+				cfg.Queue.RetryDelaySec = int(f)
+			}
+		}
+		if v, ok := updates["allow_nsfw"]; ok {
+			if b, ok := v.(bool); ok {
+				cfg.NSFW.AllowNSFW = b
+			}
+		}
+		if v, ok := updates["separate_folder"]; ok {
+			if b, ok := v.(bool); ok {
+				cfg.NSFW.SeparateFolder = b
+			}
+		}
+		if v, ok := updates["save_json"]; ok {
+			if b, ok := v.(bool); ok {
+				cfg.Metadata.SaveJSON = b
+			}
+		}
+		if v, ok := updates["log_level"]; ok {
+			if s, ok := v.(string); ok {
+				cfg.Logging.Level = s
+			}
+		}
+		if v, ok := updates["lora_enabled"]; ok {
+			if b, ok := v.(bool); ok {
+				cfg.LoraMgr.Enabled = b
+			}
+		}
+		if v, ok := updates["webhook_url"]; ok {
+			if s, ok := v.(string); ok {
+				cfg.LoraMgr.WebhookURL = s
+			}
+		}
+		if err := config.Save(*cfg, s.configPath); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"status": "saved"})
+	})
+
+	s.app.Get("/tasks", func(c *fiber.Ctx) error {
+		return c.JSON(s.manager.GetTasksGrouped())
 	})
 }
 
@@ -202,3 +321,99 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown() error {
 	return s.app.Shutdown()
 }
+
+const configPageHTML = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Civitai Smart Downloader — Config</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0;padding:20px;max-width:640px;margin:auto}
+h1{font-size:18px;margin-bottom:20px;background:linear-gradient(135deg,#667eea,#764ba2);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.section{background:#16213e;border:1px solid #1e2d4a;border-radius:10px;padding:16px;margin-bottom:16px}
+.section h2{font-size:13px;color:#9ca3af;text-transform:uppercase;margin-bottom:12px}
+.row{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+.row:last-child{margin-bottom:0}
+.row label{font-size:12px;color:#9ca3af}
+.row input,.row select{padding:8px 10px;border:1px solid #374151;border-radius:6px;background:#111827;color:#e0e0e0;font-size:13px;outline:none}
+.row input:focus{border-color:#667eea}
+.row.check{flex-direction:row;align-items:center;gap:8px}
+.row.check input{width:18px;height:18px;accent-color:#667eea}
+.row.check label{margin:0}
+.btn{padding:10px 20px;border:none;border-radius:8px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:14px;font-weight:600;cursor:pointer;width:100%}
+.btn:hover{opacity:0.9}
+#status{margin-top:12px;padding:10px;border-radius:6px;display:none;font-size:13px}
+#status.ok{display:block;background:#065f46;color:#6ee7b7}
+#status.err{display:block;background:#7f1d1d;color:#fca5a5}
+</style>
+</head>
+<body>
+<h1>Civitai Smart Downloader — Настройки</h1>
+<div id="status"></div>
+<div class="section">
+<h2>Сервер</h2>
+<div class="row"><label>Порт</label><input type="number" id="port" disabled></div>
+<div class="row"><label>API-ключ</label><input id="api_key" disabled></div>
+</div>
+<div class="section">
+<h2>Скачивание</h2>
+<div class="row"><label>Путь сохранения (root_path)</label><input id="root_path"></div>
+<div class="row"><label>Макс. одновременных</label><input type="number" id="max_concurrent"></div>
+<div class="row"><label>Попыток при ошибке</label><input type="number" id="retry_attempts"></div>
+<div class="row"><label>Задержка между попытками (сек)</label><input type="number" id="retry_delay_seconds"></div>
+</div>
+<div class="section">
+<h2>NSFW</h2>
+<div class="row check"><input type="checkbox" id="allow_nsfw"><label for="allow_nsfw">Разрешить NSFW</label></div>
+<div class="row check"><input type="checkbox" id="separate_folder"><label for="separate_folder">Отдельная папка</label></div>
+</div>
+<div class="section">
+<h2>Метаданные</h2>
+<div class="row check"><input type="checkbox" id="save_json"><label for="save_json">Сохранять JSON</label></div>
+</div>
+<div class="section">
+<h2>Логи</h2>
+<div class="row"><label>Уровень</label><select id="log_level"><option>debug</option><option>info</option><option>warn</option><option>error</option></select></div>
+</div>
+<div class="section">
+<h2>Lora Manager</h2>
+<div class="row check"><input type="checkbox" id="lora_enabled"><label for="lora_enabled">Включить webhook</label></div>
+<div class="row"><label>Webhook URL</label><input id="webhook_url"></div>
+</div>
+<button class="btn" onclick="save()">Сохранить</button>
+<script>
+async function load(){
+  try{
+    const r=await fetch('/api/config');const d=await r.json();
+    set('port',d.server.port);set('api_key',d.api_key);
+    set('root_path',d.root_path);set('max_concurrent',d.max_concurrent);
+    set('retry_attempts',d.retry_attempts);set('retry_delay_seconds',d.retry_delay_seconds);
+    setChk('allow_nsfw',d.allow_nsfw);setChk('separate_folder',d.separate_folder);
+    setChk('save_json',d.save_json);set('log_level',d.log_level);
+    setChk('lora_enabled',d.lora_enabled);set('webhook_url',d.webhook_url);
+  }catch(e){show('err','Failed to load: '+e.message)}
+}
+function set(id,v){const e=document.getElementById(id);if(e)e.value=v??''}
+function setChk(id,v){const e=document.getElementById(id);if(e)e.checked=!!v}
+function get(id){return document.getElementById(id)?.value??''}
+function getChk(id){return document.getElementById(id)?.checked??false}
+async function save(){
+  const body={root_path:get('root_path'),max_concurrent:parseInt(get('max_concurrent'))||2,
+    retry_attempts:parseInt(get('retry_attempts'))||3,retry_delay_seconds:parseInt(get('retry_delay_seconds'))||60,
+    allow_nsfw:getChk('allow_nsfw'),separate_folder:getChk('separate_folder'),
+    save_json:getChk('save_json'),log_level:get('log_level'),
+    lora_enabled:getChk('lora_enabled'),webhook_url:get('webhook_url')};
+  try{
+    const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json();
+    if(d.status==='saved')show('ok','Сохранено!');
+    else show('err',d.error||'Error');
+  }catch(e){show('err',e.message)}
+}
+function show(t,m){const e=document.getElementById('status');e.className=t;e.textContent=m;e.style.display='block';setTimeout(()=>{e.style.display='none'},4000)}
+load();
+</script>
+</body>
+</html>`

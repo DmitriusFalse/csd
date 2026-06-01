@@ -22,8 +22,8 @@ download_queue:
 # Интеграция с Lora Manager
 lora_manager:
   enabled: false
-  webhook_url: "http://localhost:7860/api/models/refresh"
-  webhook_method: "POST"
+  webhook_url: "http://127.0.0.1:8288/api/lm/loras/scan?full_rebuild=false"
+  webhook_method: "GET"
 
 # Метаданные
 metadata:

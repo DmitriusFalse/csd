@@ -21,12 +21,13 @@ import (
 type Manager struct {
 	mu            sync.RWMutex
 	tasks         map[string]*models.DownloadTask
+	taskCancels   map[string]context.CancelFunc
 	active        int
 	maxConcurrent int
 	queue         []*models.DownloadTask
 	cfg           *config.Config
 	downloader    *Downloader
-	civitaiClient *api.CivitaiClient
+	civitaiClient api.ModelInfoFetcher
 	ctx           context.Context
 	cancel        context.CancelFunc
 	webhookURL    string
@@ -34,10 +35,11 @@ type Manager struct {
 	onUpdate      func()
 }
 
-func NewManager(cfg *config.Config, civitaiClient *api.CivitaiClient) *Manager {
+func NewManager(cfg *config.Config, civitaiClient api.ModelInfoFetcher) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
 		tasks:         make(map[string]*models.DownloadTask),
+		taskCancels:   make(map[string]context.CancelFunc),
 		maxConcurrent: cfg.Queue.MaxConcurrent,
 		cfg:           cfg,
 		downloader:    New(),
@@ -65,6 +67,10 @@ func (m *Manager) AddTask(req models.DownloadRequest) (*models.DownloadTask, err
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if req.APIKey == "" {
+		req.APIKey = m.cfg.APIKey
+	}
+
 	task := &models.DownloadTask{
 		ID:             uuid.New().String(),
 		ModelVersionID: req.ModelVersionID,
@@ -76,6 +82,7 @@ func (m *Manager) AddTask(req models.DownloadRequest) (*models.DownloadTask, err
 		Status:         models.StatusQueued,
 		Priority:       req.Priority,
 		AddedAt:        time.Now(),
+		PreviewImage:   req.PreviewImage,
 	}
 
 	if req.FileSize != "" {
@@ -170,12 +177,15 @@ func (m *Manager) startTask(task *models.DownloadTask) {
 		zap.String("url", fmt.Sprintf("civitai.com/api/download/models/%d", task.ModelVersionID)),
 	)
 
+	dlCtx, dlCancel := context.WithCancel(m.ctx)
+	m.mu.Lock()
+	m.taskCancels[task.ID] = dlCancel
+	m.mu.Unlock()
+
 	for attempt <= maxAttempts {
-		ctx, cancel := context.WithCancel(m.ctx)
-		err := m.downloader.Download(ctx, task, func(downloaded, total int64) {
+		err := m.downloader.Download(dlCtx, task, func(downloaded, total int64) {
 			m.notifyUpdate()
 		})
-		cancel()
 
 		if err == nil {
 			break
@@ -183,12 +193,16 @@ func (m *Manager) startTask(task *models.DownloadTask) {
 
 		if models.IsDownloadCanceled(err) {
 			m.mu.Lock()
-			task.Status = models.StatusPaused
-			task.Error = "canceled"
+			if task.Status != models.StatusFailed {
+				task.Status = models.StatusPaused
+				task.Error = "canceled"
+			}
+			m.downloader.RemoveTempFile(task)
 			m.active--
 			m.saveQueue()
+			delete(m.taskCancels, task.ID)
 			m.mu.Unlock()
-			logger.Log.Info("Download paused by user", zap.String("id", task.ID))
+			logger.Log.Info("Download cancelled", zap.String("id", task.ID))
 			m.notifyUpdate()
 			return
 		}
@@ -239,6 +253,7 @@ func (m *Manager) startTask(task *models.DownloadTask) {
 		)
 		m.saveQueue()
 		m.processQueue()
+		delete(m.taskCancels, task.ID)
 		m.mu.Unlock()
 		m.notifyUpdate()
 		return
@@ -329,10 +344,10 @@ func (m *Manager) ResumeTask(id string) error {
 
 func (m *Manager) CancelTask(id string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	task, ok := m.tasks[id]
 	if !ok {
+		m.mu.Unlock()
 		return fmt.Errorf("task not found: %s", id)
 	}
 
@@ -340,14 +355,32 @@ func (m *Manager) CancelTask(id string) error {
 		m.active--
 	}
 
+	if cancel, exists := m.taskCancels[id]; exists {
+		cancel()
+		delete(m.taskCancels, id)
+	}
+
 	oldStatus := task.Status
 	task.Status = models.StatusFailed
 	task.Error = "cancelled"
-	m.downloader.RemoveTempFile(task)
+
+	// Retry file removal a few times in case download goroutine still holds the handle
+	for i := 0; i < 5; i++ {
+		if err := os.Remove(task.TempPath); err == nil {
+			break
+		}
+		if i < 4 {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
 
 	m.saveQueue()
+	m.mu.Unlock()
+
 	if oldStatus == models.StatusDownloading {
+		m.mu.Lock()
 		m.processQueue()
+		m.mu.Unlock()
 	}
 	m.notifyUpdate()
 	return nil
@@ -401,6 +434,26 @@ func (m *Manager) GetAllTasks() []*models.DownloadTask {
 		result = append(result, task)
 	}
 	return result
+}
+
+func (m *Manager) GetTasksGrouped() *models.TasksResponse {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	resp := &models.TasksResponse{}
+
+	for _, task := range m.tasks {
+		switch task.Status {
+		case models.StatusDownloading:
+			resp.Active = append(resp.Active, task)
+		case models.StatusQueued, models.StatusPaused:
+			resp.Queued = append(resp.Queued, task)
+		case models.StatusCompleted, models.StatusFailed:
+			resp.History = append(resp.History, task)
+		}
+	}
+
+	return resp
 }
 
 func (m *Manager) GetActiveCount() int {

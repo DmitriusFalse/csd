@@ -1,53 +1,102 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Civitai Smart Downloader</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="app">
     <header>
       <h1>Civitai Smart Downloader</h1>
-      <span id="status-badge">Ожидание</span>
+      <div class="header-actions">
+        <button id="status-indicator" class="status-dot" title="Проверить подключение"></button>
+        <button id="toggle-config" class="icon-btn" title="Настройки">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+      </div>
     </header>
 
-    <section class="settings">
+    <section id="config-section" class="config-panel">
       <h2>⚙ Настройки</h2>
 
-      <label>
-        <span>Порт сервера</span>
-        <input type="number" id="server-port" value="8765" min="1024" max="65535" />
-      </label>
-
-      <label>
-        <span>API-ключ (опционально)</span>
-        <input type="password" id="api-key" placeholder="Введите API-ключ Civitai" />
-        <button id="toggle-key-visibility" class="small-btn">👁</button>
-      </label>
-
-      <button id="check-connection" class="btn">🔄 Проверить соединение</button>
-    </section>
-
-    <section class="actions">
-      <h2>📋 Действия</h2>
-      <button id="open-logs" class="btn">📝 Просмотр логов</button>
-      <button id="open-config" class="btn">⚙ Открыть config.yaml</button>
-    </section>
-
-    <section class="queue-preview">
-      <h2>📥 Очередь</h2>
-      <div id="queue-info">
-        <p>Активных: <span id="active-count">0</span></p>
-        <p>В очереди: <span id="queued-count">0</span></p>
+      <div class="cfg-group">
+        <label>Порт сервера</label>
+        <input type="number" id="server-port" value="8765" min="1024" max="65535">
       </div>
-      <button id="refresh-queue" class="btn small-btn">🔄 Обновить</button>
+      <div class="cfg-group">
+        <label>API-ключ Civitai (опционально)</label>
+        <div class="cfg-key-row">
+          <input type="password" id="api-key" placeholder="Оставь пустым, если указан в config.yaml">
+          <button id="toggle-key" class="btn-icon" title="Показать/скрыть">👁</button>
+        </div>
+      </div>
+      <div class="cfg-group">
+        <label>Путь сохранения моделей</label>
+        <input id="cfg-root-path" placeholder="D:/AI/Models">
+      </div>
+      <div class="cfg-row">
+        <div class="cfg-group">
+          <label>Одновременных загрузок</label>
+          <input type="number" id="cfg-max-concurrent" min="1" max="10">
+        </div>
+        <div class="cfg-group">
+          <label>Попыток при ошибке</label>
+          <input type="number" id="cfg-retry-attempts" min="1" max="10">
+        </div>
+      </div>
+      <div class="cfg-check"><input type="checkbox" id="cfg-allow-nsfw"><label for="cfg-allow-nsfw">Разрешить NSFW</label></div>
+      <div class="cfg-check"><input type="checkbox" id="cfg-sep-folder"><label for="cfg-sep-folder">Отдельная папка для NSFW</label></div>
+      <div class="cfg-check"><input type="checkbox" id="cfg-save-json"><label for="cfg-save-json">Сохранять JSON с метаданными</label></div>
+      <div class="cfg-group">
+        <label>Уровень логирования</label>
+        <select id="cfg-log-level">
+          <option value="debug">debug</option>
+          <option value="info">info</option>
+          <option value="warn">warn</option>
+          <option value="error">error</option>
+        </select>
+      </div>
+      <div class="cfg-webhook-row">
+        <div class="cfg-group cfg-webhook-port">
+          <label>Порт Lora Manager (webhook)</label>
+          <div class="cfg-port-row">
+            <input type="number" id="cfg-webhook-port" placeholder="8188" min="1" max="65535">
+            <span id="cfg-webhook-status" class="wh-dot" title="Проверить подключение"></span>
+          </div>
+        </div>
+        <div class="cfg-check"><input type="checkbox" id="cfg-lora-enabled"><label for="cfg-lora-enabled">Вкл</label></div>
+      </div>
+      <button id="open-logs" class="btn cfg-log-btn">📄 Открыть папку с логами</button>
+      <div class="cfg-actions">
+        <button id="cfg-save" class="btn">💾 Сохранить</button>
+        <span id="cfg-status" class="cfg-status"></span>
+      </div>
     </section>
 
-    <footer>
-      <p>v0.1.0</p>
-    </footer>
+    <section id="active-section">
+      <h2>⬇ Активные</h2>
+      <div id="active-list"></div>
+      <p id="active-empty" class="empty-state">Нет активных загрузок</p>
+    </section>
+
+    <section id="queued-section">
+      <h2>⏳ Очередь</h2>
+      <div id="queued-list"></div>
+      <p id="queued-empty" class="empty-state">Очередь пуста</p>
+    </section>
+
+    <section id="history-section">
+      <h2>📋 История</h2>
+      <div id="history-list"></div>
+      <p id="history-empty" class="empty-state">История пуста</p>
+    </section>
+
+    <footer>v0.7.4.11</footer>
   </div>
 
   <script type="module" src="main.ts"></script>

@@ -81,22 +81,27 @@ func SaveJSON(meta *models.ModelMetadata, modelPath string) error {
 }
 
 func SendWebhook(url, method string, task *models.DownloadTask) error {
-	payload := WebhookPayload{
-		Action:    "model_added",
-		ModelPath: task.SavePath,
-		ModelType: string(task.ModelType),
+	var bodyReader io.Reader
+	if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
+		payload := WebhookPayload{
+			Action:    "model_added",
+			ModelPath: task.SavePath,
+			ModelType: string(task.ModelType),
+		}
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("marshal webhook: %w", err)
+		}
+		bodyReader = bytes.NewReader(b)
 	}
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal webhook: %w", err)
-	}
-
-	req, err := http.NewRequest(method, url, bytes.NewReader(body))
+	req, err := http.NewRequest(method, url, bodyReader)
 	if err != nil {
 		return fmt.Errorf("create webhook request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if bodyReader != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)

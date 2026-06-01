@@ -78,8 +78,8 @@ var defaultConfig = Config{
 	},
 	LoraMgr: LoraManager{
 		Enabled:       false,
-		WebhookURL:    "http://localhost:7860/api/models/refresh",
-		WebhookMethod: "POST",
+		WebhookURL:    "http://127.0.0.1:8188/api/lm/loras/scan?full_rebuild=false",
+		WebhookMethod: "GET",
 	},
 	Metadata: MetadataConfig{
 		SaveJSON:         true,

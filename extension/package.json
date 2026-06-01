@@ -1,12 +1,12 @@
 {
   "name": "civitai-smart-downloader",
   "description": "Browser extension for Civitai Smart Downloader",
-  "version": "0.1.0",
+  "version": "0.7.4.14",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wxt",
-    "build": "wxt build",
+    "build": "wxt build && node patch-build.mjs",
     "zip": "wxt zip",
     "compile": "wxt build --production"
   },

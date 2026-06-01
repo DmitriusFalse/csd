@@ -17,9 +17,11 @@ import (
 	"go.uber.org/zap"
 )
 
-const appVersion = "0.1.0"
+const appVersion = "0.7.4.11"
 
 func main() {
+	headless := os.Getenv("CSD_HEADLESS") == "1" || os.Getenv("CSD_HEADLESS") == "true"
+
 	cfgPath := "config.yaml"
 	if envPath := os.Getenv("CSD_CONFIG"); envPath != "" {
 		cfgPath = envPath
@@ -38,26 +40,27 @@ func main() {
 	logger.Log.Info("Starting Civitai Smart Downloader",
 		zap.String("version", appVersion),
 		zap.Int("port", cfg.Server.Port),
+		zap.Bool("headless", headless),
 	)
 
 	if cfg.APIKey != "" {
-		decrypted, err := crypto.Decrypt(cfg.APIKey)
-		if err != nil {
-			logger.Log.Warn("Failed to decrypt API key, may need re-entry", zap.Error(err))
-		} else {
-			cfg.APIKey = decrypted
+		if len(cfg.APIKey) > 20 && cfg.APIKey[:7] == "aes256:" {
+			decrypted, err := crypto.Decrypt(cfg.APIKey[7:])
+			if err != nil {
+				logger.Log.Warn("Failed to decrypt API key, may need re-entry", zap.Error(err))
+			} else {
+				cfg.APIKey = decrypted
+			}
 		}
 	}
 
 	civitaiClient := api.NewClient()
 	manager := downloader.NewManager(cfg, civitaiClient)
 
-	srv := server.New(cfg.Server.Host, cfg.Server.Port, manager)
+	srv := server.New(cfg.Server.Host, cfg.Server.Port, manager, cfgPath, cfg.Logging.File)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-
-	shutdownCh := make(chan struct{})
 
 	go func() {
 		addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -67,20 +70,25 @@ func main() {
 		}
 	}()
 
-	go tray.Run(manager, cfg.RootPath, func() {
-		close(shutdownCh)
-	})
-
-	select {
-	case <-ctx.Done():
+	if headless {
+		logger.Log.Info("Running in headless mode (no system tray)")
+		<-ctx.Done()
 		logger.Log.Info("Shutting down by signal...")
-	case <-shutdownCh:
-		logger.Log.Info("Shutting down by user request...")
+	} else {
+		shutdownCh := make(chan struct{})
+		go tray.Run(manager, cfg.RootPath, func() {
+			close(shutdownCh)
+		})
+
+		select {
+		case <-ctx.Done():
+			logger.Log.Info("Shutting down by signal...")
+		case <-shutdownCh:
+			logger.Log.Info("Shutting down by user request...")
+		}
 	}
 
 	manager.Shutdown()
 	_ = srv.Shutdown()
 	logger.Log.Info("Shutdown complete")
 }
-
-
