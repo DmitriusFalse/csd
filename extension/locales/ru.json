@@ -1,0 +1,21 @@
+{
+  "appName": "Civitai Smart Downloader",
+  "appDescription": "Скачивание моделей Civitai напрямую в локальное хранилище",
+  "downloadButton": "⬇ Скачать в Lora Manager",
+  "sending": "⏳ Отправка...",
+  "sent": "✅ Отправлено",
+  "taskCreated": "✅ Задача отправлена: {modelName}",
+  "error": "❌ Ошибка: {error}",
+  "serverUnavailable": "❌ Ошибка связи с сервером: {error}",
+  "settings": "⚙ Настройки",
+  "serverPort": "Порт сервера",
+  "apiKey": "API-ключ (опционально)",
+  "checkConnection": "🔄 Проверить соединение",
+  "queue": "📥 Очередь",
+  "active": "Активных",
+  "queued": "В очереди",
+  "refresh": "🔄 Обновить",
+  "connected": "Подключено ({active} активных)",
+  "serverOffline": "Сервер недоступен",
+  "checking": "Проверка..."
+}

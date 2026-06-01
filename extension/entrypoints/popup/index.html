@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Civitai Smart Downloader</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Civitai Smart Downloader</h1>
+      <span id="status-badge">Ожидание</span>
+    </header>
+
+    <section class="settings">
+      <h2>⚙ Настройки</h2>
+
+      <label>
+        <span>Порт сервера</span>
+        <input type="number" id="server-port" value="8765" min="1024" max="65535" />
+      </label>
+
+      <label>
+        <span>API-ключ (опционально)</span>
+        <input type="password" id="api-key" placeholder="Введите API-ключ Civitai" />
+        <button id="toggle-key-visibility" class="small-btn">👁</button>
+      </label>
+
+      <button id="check-connection" class="btn">🔄 Проверить соединение</button>
+    </section>
+
+    <section class="actions">
+      <h2>📋 Действия</h2>
+      <button id="open-logs" class="btn">📝 Просмотр логов</button>
+      <button id="open-config" class="btn">⚙ Открыть config.yaml</button>
+    </section>
+
+    <section class="queue-preview">
+      <h2>📥 Очередь</h2>
+      <div id="queue-info">
+        <p>Активных: <span id="active-count">0</span></p>
+        <p>В очереди: <span id="queued-count">0</span></p>
+      </div>
+      <button id="refresh-queue" class="btn small-btn">🔄 Обновить</button>
+    </section>
+
+    <footer>
+      <p>v0.1.0</p>
+    </footer>
+  </div>
+
+  <script type="module" src="main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+# Civitai Smart Downloader — Example Configuration (без API-ключа)
+# Скопируйте в config.yaml и заполните свои данные
+
+server:
+  port: 8765
+  host: "127.0.0.1"
+
+# API-ключ Civitai (опционально — можно вводить через расширение или зашифрованным)
+# Если оставить пустым — расширение должно передавать ключ в каждом запросе
+api_key: ""
+
+# Корневая папка для моделей (подпапки создаются автоматически)
+root_path: "D:/AI/Models"
+
+# Настройки очереди загрузок
+download_queue:
+  max_concurrent: 2          # Максимум одновременных загрузок
+  retry_attempts: 3          # Попыток при ошибке
+  retry_delay_seconds: 60    # Задержка между попытками
+  rate_limit_delay_ms: 1000  # Задержка между запросами к API Civitai
+
+# Интеграция с Lora Manager
+lora_manager:
+  enabled: false
+  webhook_url: "http://localhost:7860/api/models/refresh"
+  webhook_method: "POST"
+
+# Метаданные
+metadata:
+  save_json: true            # Сохранять JSON рядом с моделью
+  download_previews: false   # Скачивать превью-изображения
+  max_preview_count: 3
+
+# Логирование
+logging:
+  level: "info"              # debug | info | warn | error
+  file: "logs/app.log"
+  max_size_mb: 100
+  max_backups: 5
+  compress: true
+
+# NSFW
+nsfw:
+  allow_nsfw: true
+  separate_folder: true
+  folder_suffix: "_NSFW"
+
+# Обновления
+updates:
+  auto_check: true
+  check_interval_hours: 24
+  github_repo: "DmitriusFalse/csd"

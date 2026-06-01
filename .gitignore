@@ -1,0 +1,40 @@
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+
+# Node
+node_modules/
+dist/
+.wxt/
+.output/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# App runtime
+config.yaml
+config.yml
+queue.json
+*.log
+logs/
+cache/
+
+# Temp
+tmp/
+temp/

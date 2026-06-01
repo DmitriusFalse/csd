@@ -1,0 +1,21 @@
+{
+  "appName": "Civitai Smart Downloader",
+  "appDescription": "Download Civitai models directly to your local storage",
+  "downloadButton": "⬇ Download to Lora Manager",
+  "sending": "⏳ Sending...",
+  "sent": "✅ Sent",
+  "taskCreated": "✅ Task sent: {modelName}",
+  "error": "❌ Error: {error}",
+  "serverUnavailable": "❌ Server connection error: {error}",
+  "settings": "Settings",
+  "serverPort": "Server Port",
+  "apiKey": "API Key (optional)",
+  "checkConnection": "🔄 Check Connection",
+  "queue": "Queue",
+  "active": "Active",
+  "queued": "Queued",
+  "refresh": "🔄 Refresh",
+  "connected": "Connected ({active} active)",
+  "serverOffline": "Server unavailable",
+  "checking": "Checking..."
+}

@@ -1,0 +1,707 @@
+ Техническое Задание (ТЗ): "Civitai Smart Downloader"
+1. Цель проекта
+Создать комплексное решение (Браузерное расширение + Локальное приложение) для автоматизированного скачивания моделей (Lora, Checkpoints, Embeddings) с сайта Civitai (и его зеркал) напрямую в заданные директории с последующей интеграцией с Lora Manager.
+1.1. Сайты откуда качать
+ civitai.com, и civitai.red
+Это два клона сайта, работают идентично.
+
+2. Архитектура системы
+Система состоит из двух модулей, общающихся по локальной сети:
+Модуль А (Browser Extension): Расширение для Chromium-браузеров (Manifest V3). Отвечает за UI, извлечение ID модели со страницы и отправку команд.
+Модуль Б (Local Bridge): Локальный микросервис. Отвечает за загрузку файлов, работу с файловой системой ОС и взаимодействие с Lora Manager.
+3. Требования к Модулю А (Браузерное расширение)
+3.1. Пользовательский интерфейс (UI)
+Инъекция на страницу: При заходе на страницу модели расширение добавляет кнопку [⬇ Скачать в Lora Manager] рядом со стандартными кнопками сайта.
+Popup-окно (Настройки):
+Поле для ввода API-ключа Civitai (необходим, так как сайт защищает ссылки от парсинга и требует авторизацию для скачивания).
+Поле для указания порта локального сервера (по умолчанию localhost:8765).
+Выбор типа модели (Lora, Checkpoint, VAE), если расширение не может определить его автоматически.
+Уведомления: Всплывающие сообщения (Toast) о статусе («Задача отправлена на ПК», «Ошибка связи с сервером»).
+3.2. Логика и Парсинг
+Content Script: Анализирует страницу, чтобы извлечь:
+modelVersionId (ID конкретной версии модели для API).
+modelName (Название файла).
+modelType (Тип модели).
+Background Worker: Формирует JSON-запрос и отправляет его на локальный сервер.
+4. Требования к Модулю Б (Локальный сервер)
+4.1. API для приема задач
+Эндпоинт POST /download, принимающий JSON:
+{
+  "modelVersionId": 290640,
+  "fileId": 228616,
+  "modelType": "Checkpoint",
+  "baseModel": "SDXL",
+  "modelName": "Pony Diffusion V6 XL",
+  "fileName": "ponyDiffusionV6XL_v6.safetensors",
+  "fileSize": "6.46 GB",
+  "apiKey": "civitai-api-key-here"
+}
+
+4.2. Загрузчик файлов (Downloader)
+Формирование прямой ссылки: https://civitai.com/api/download/models/{versionId}?token={apiKey}.
+Скачивание чанками (кусками), чтобы не перегружать оперативную память при загрузке моделей по 5-10 ГБ.
+Поддержка Resume (возобновление скачивания при обрыве связи).
+Опционально: Использование aria2c для многопоточного скачивания (ускоряет загрузку в 3-5 раз).
+4.3. Маршрутизация по папкам
+Чтение конфигурационного файла (.json или .yaml), где прописаны пути:
+ "См. раздел 9.3"
+4.4. Интеграция с Lora Manager
+После успешного сохранения файла сервер должен "пингануть" Lora Manager, чтобы тот обновил базу.
+Варианты: Отправка HTTP-запроса на локальный API менеджера или запуск пользовательского .bat / .sh скрипта (Webhook) после завершения загрузки.
+5. Обработка ошибок и Безопасность
+Безопасность: Локальный сервер должен слушать только 127.0.0.1 (localhost), чтобы исключить доступ к нему из внешней сети.
+Ошибки API:
+401 Unauthorized: Неверный API-ключ (уведомить пользователя).
+404 Not Found: Модель удалена.
+429 Too Many Requests: Cloudflare/Civitai ограничило частоту запросов (поставить задачу в очередь с повтором через N секунд).
+Автостарт: Локальный сервер должен уметь сворачиваться в системный трей и запускаться вместе с Windows/macOS/Linux.
+6. Стек технологий (обновлено под Go)
+Модуль А (Браузерное расширение) — без изменений
+Языки: JavaScript / TypeScript.
+Стандарт: Manifest V3.
+Сборка: Vite.
+Модуль Б (Local Bridge на Go)
+Компонент
+Библиотека / Решение
+HTTP-сервер
+net/http (стандартная) или gofiber/fiber (быстрее, удобнее роутинг)
+Конфигурация
+spf13/viper или gopkg.in/yaml.v3
+Скачивание файлов
+cavaliergopher/grab/v3 (готовая либа с прогрессом, resume, чанками) или стандартный net/http + ручная реализация Range-заголовков
+Многопоточное скачивание
+Вызов aria2c через os/exec (самый быстрый способ для файлов >1 ГБ)
+Иконка в трее
+energye/systray (кроссплатформенный, форк getlantern/systray с улучшениями)
+Логирование
+uber-go/zap или rs/zerolog (структурированные логи)
+Graceful Shutdown
+Стандартный os.Signal + context для корректного завершения загрузок
+Сборка под разные ОС
+goreleaser/goreleaser (автоматически соберет .exe, .deb, .dmg из одного кода)
+Установщик (Windows)
+go-msi или WiX Toolset
+
+
+Дополнение к ТЗ: Результаты исследования Civitai
+8. Результаты реверс-инжиниринга сайта
+8.1. Архитектура сайта
+Технологический стек:
+Frontend фреймворк: Next.js (обнаружены запросы к /_next/data/ и /_next/static/)
+UI библиотека: Mantine UI (классы mantine-Button-root, mantine-Group-root)
+API протокол: tRPC (все API-запросы идут через /api/trpc/{method})
+Структура URL: /models/{modelId}/{slug}?modelVersionId={versionId}
+8.2. Ключевые идентификаторы
+Обнаружено три уровня ID, которые критически важны для работы:
+ID
+Пример
+Где находится
+Назначение
+modelId
+257749
+В URL страницы
+ID самой модели (Checkpoint/LoRA)
+modelVersionId
+290640
+В query-параметре URL
+ID конкретной версии модели
+fileId
+228616
+В href кнопки Download
+ID конкретного файла для скачивания
+Пример URL страницы:
+https://civitai.red/models/257749/pony-diffusion-v6-xl?modelVersionId=290640
+8.3. Механизм скачивания файлов
+Обнаруженная структура ссылки на скачивание:
+<a href="/api/download/models/290640?fileId=228616">
+  Download (6.46 GB)
+</a>
+Формат URL для скачивания:
+/api/download/models/{modelVersionId}?fileId={fileId}
+Полный URL с авторизацией (для Go-сервера):
+https://civitai.red/api/download/models/{modelVersionId}?fileId={fileId}&token={apiKey}
+8.4. Анализ API-запросов
+Основной эндпоинт получения данных модели:
+GET /api/trpc/modelVersion.getById?input={"json":{"id":290640,"authed":true}}
+Возвращаемые данные (предположительно):
+Полное название модели
+Тип модели (Checkpoint, LoRA, VAE, etc.)
+Базовая модель (SD 1.5, SDXL, Pony, etc.)
+Список файлов с размерами
+Информация о создателе
+Метаданные для скачивания
+Дополнительные важные эндпоинты:
+/api/trpc/common.getEntityAccess - проверка прав доступа к модели
+/api/trpc/user.getCreator - информация о создателе модели
+/api/trpc/track.addView - отслеживание просмотров (не нужен для скачивания)
+8.5. Авторизация и безопасность
+Обнаруженные механизмы:
+Куки-авторизация: Все API-запросы отправляются с credentials: "include", что означает автоматическую передачу сессионных кук
+Параметр authed: В каждом tRPC-запросе передается "authed":true для проверки авторизации
+API-ключ: Используется в query-параметре ?token={apiKey} для программных запросов
+Заголовки запросов:
+sec-ch-ua: "Chromium";v="142"
+sec-fetch-site: same-origin
+credentials: include
+
+8.6. Парсинг страницы (Content Script)
+Что нужно извлечь из HTML:
+Из URL страницы
+const urlParams = new URLSearchParams(window.location.search);
+const modelVersionId = urlParams.get('modelVersionId');
+Из кнопки Download:
+
+const downloadButton = document.querySelector('a[href*="/api/download/models/"]');
+const href = downloadButton.getAttribute('href');
+const fileId = new URLSearchParams(href.split('?')[1]).get('fileId');
+Альтернативный способ (через API):
+Сделать GET-запрос к modelVersion.getById с modelVersionId
+Получить полную информацию о модели включая тип, базовую модель, название файла
+8.7. Маршрутизация файлов
+Логика определения типа модели:
+Из API-ответа modelVersion.getById нужно извлечь поле type (предположительно):
+Checkpoint → папка models/Stable-diffusion
+LORA → папка models/Lora
+VAE → папка models/VAE
+TextualInversion → папка models/embeddings
+LoCon → папка models/Lora
+Controlnet → папка models/ControlNet
+Дополнительная классификация по базовой модели:
+SD 1.5 → подпапка SD15/
+SDXL → подпапка SDXL/
+Pony → подпапка Pony/
+Flux → подпапка Flux/
+8.8. Обработка ошибок
+Возможные коды ответов при скачивании:
+Код
+Значение
+Действие
+200
+Успех
+Продолжить загрузку
+401
+Неверный API-ключ
+Уведомить пользователя, запросить новый ключ
+403
+Нет доступа к модели
+Проверить, не приватная ли модель
+404
+Модель/файл не найдены
+Проверить корректность ID
+429
+Rate limit
+Повторить через 30-60 секунд
+503
+Cloudflare защита
+Добавить задержку, использовать User-Agent
+8.9. Требования к User-Agent
+Для обхода базовой защиты Cloudflare Go-сервер должен отправлять реалистичный User-Agent:
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+8.10. Размер файлов и прогресс
+Обнаружено: Размер файла отображается в тексте кнопки Download (например, "6.46 GB")
+Для Go-сервера:
+Использовать заголовок Content-Length из HTTP-ответа для расчета прогресса
+Реализовать чанковое скачивание (например, по 1 МБ) для экономии памяти
+Поддержка Range заголовков для возобновления прерванных загрузок
+9. Обновленная архитектура (с учетом исследования)
+9.1. Поток данных
+[Страница Civitai]
+        ↓
+[Content Script] → извлекает modelVersionId + fileId
+        ↓
+[Background Script] → формирует JSON-запрос
+        ↓
+[POST localhost:8765/download]
+        ↓
+[Go Local Bridge] → получает данные
+        ↓
+[GET civitai.com/api/download/models/{id}?fileId={id}&token={key}]
+        ↓
+[Сохранение в папку по типу модели]
+        ↓
+[Webhook → Lora Manager]
+9.2. Структура JSON-запроса от расширения
+
+{
+  "modelVersionId": 290640,
+  "fileId": 228616,
+  "modelType": "Checkpoint",
+  "baseModel": "SDXL",
+  "modelName": "Pony Diffusion V6 XL",
+  "fileName": "ponyDiffusionV6XL_v6.safetensors",
+  "fileSize": "6.46 GB",
+  "apiKey": "civitai-api-key-here"
+}
+9.3. Конфигурация путей (обновленная) 
+пользователь указывает только корень (D:\AI\Models), а подпапки (Lora/SD15, Stable-diffusion/SDXL и т.д.) создаются автоматически по стандартам A1111/ComfyUI. Это стандарт индустрии.
+
+10. Детализация требований (дополнения к ТЗ)
+10.1. Детализация UI локального приложения (Tray)
+10.1.1. Контекстное меню в системном трее
+Структура меню:
+├─ 📥 Активные загрузки
+│  ├─ Pony Diffusion V6 XL (45%, 2.9/6.46 GB) [⏸ Пауза] [❌ Отмена]
+│  ├─ Gothic Neon LoRA (78%, 156/200 MB) [⏸ Пауза] [❌ Отмена]
+│  └─ ⏸ Все на паузе / ▶ Возобновить все
+│
+├─ ⏱ Очередь (3 модели)
+│  ├─ 1. Cyberpunk Style LoRA
+│  ├─ 2. Realistic Vision Checkpoint
+│  └─ 3. Detail Enhancer VAE
+│
+├─ 📂 Открыть папку загрузок
+│  ├─ Stable-diffusion/
+│  ├─ Lora/
+│  └─ VAE/
+│
+├─ ⚙ Настройки
+│  ├─ Открыть config.yaml
+│  ├─ Сменить API-ключ
+│  └─ Изменить корневой путь
+│
+├─ 📊 Статистика
+│  ├─ Скачано сегодня: 12.4 GB
+│  ├─ Всего скачано: 847 GB
+│  └─ Успешных загрузок: 156
+│
+├─ 📝 Просмотр логов (открывает файл логов)
+│
+└─ ❌ Выход (с подтверждением, если есть активные загрузки)
+10.1.2. Всплывающие уведомления ОС
+Типы уведомлений:
+Событие,Текст уведомления,Иконка,Звук
+Загрузка начата,"""📥 Скачивание: Pony Diffusion V6 XL (6.46 GB)""",📥,Тихий
+Прогресс (каждые 25%),"""⏳ Pony Diffusion V6 XL: 25% (1.6/6.46 GB)""",⏳,Без звука
+Успешно завершена,"""✅ Модель сохранена: Pony Diffusion V6 XL""",✅,Успех
+Ошибка,"""❌ Ошибка: Неверный API-ключ для Pony Diffusion V6 XL""",❌,Ошибка
+Пауза,"""⏸ Загрузка приостановлена: Pony Diffusion V6 XL""",⏸,Без звука
+Возобновление,"""▶ Загрузка возобновлена: Pony Diffusion V6 XL""",▶,Без звука
+Rate limit,"""⚠ Civitai ограничил запросы. Повтор через 60 сек""",⚠,Предупреждение
+Реализация: Использовать библиотеку github.com/go-toast/toast (Windows) или нативные API через energye/systray.
+10.1.3. Индикатор прогресса на иконке трея
+Варианты реализации:
+Overlay badge (если поддерживает ОС):
+Число активных загрузок на иконке
+Процент завершения текущей загрузки
+Анимация иконки:
+Вращающаяся стрелка во время загрузки
+Статичная иконка в простое
+Изменение цвета иконки:
+Зеленый — все загрузки завершены
+Синий — активные загрузки
+Желтый — загрузки на паузе
+Красный — есть ошибки
+10.2. Очередь и параллельные загрузки
+10.2.1. Конфигурация очереди
+download_queue:
+  max_concurrent_downloads: 2  # Максимум одновременных загрузок
+  retry_attempts: 3            # Количество попыток при ошибке
+  retry_delay_seconds: 60      # Задержка между попытками
+  rate_limit_delay_ms: 1000    # Задержка между запросами к API
+  
+  # Приоритеты (1 - наивысший)
+  priority:
+    manual: 1      # Запущенные вручную из расширения
+    scheduled: 2   # Запланированные загрузки
+    batch: 3       # Пакетные загрузки из списка
+10.2.2. Поведение очереди
+Сценарий 1: Максимум параллельных загрузок достигнут
+Пользователь запускает 3-ю загрузку при max_concurrent_downloads: 2
+→ Загрузка добавляется в очередь
+→ Уведомление: "📋 Добавлено в очередь (позиция 1 из 3)"
+→ Автоматический старт после завершения одной из активных
+Сценарий 2: Приоритизация
+В очереди: [Model A (приоритет 3), Model B (приоритет 3)]
+Пользователь запускает Model C вручную (приоритет 1)
+→ Model C вставляется в начало очереди
+→ Порядок: [Model C, Model A, Model B]
+Сценарий 3: Пауза всех загрузок
+
+Пользователь нажимает "⏸ Все на паузе"
+→ Активные загрузки приостанавливаются (сохраняется прогресс)
+→ Очередь замораживается
+→ Уведомление: "⏸ Все загрузки приостановлены (2 активные, 3 в очереди)"
+10.2.3. Управление очередью из расширения
+Дополнительные кнопки в расширении:
+// Popup-окно расширения
+├─ ⬇ Скачать сейчас (приоритет 1)
+├─ 📋 Добавить в очередь (приоритет 3)
+└─ ⏰ Запланировать на 02:00 (ночная загрузка)
+10.2.4. Персистентность очереди
+Требование: Очередь должна сохраняться при перезапуске приложения.
+Реализация:# Файл queue.json в директории приложения
+{
+  "active_downloads": [
+    {
+      "id": "uuid-123",
+      "modelVersionId": 290640,
+      "fileId": 228616,
+      "fileName": "ponyDiffusionV6XL_v6.safetensors",
+      "downloadedBytes": 3124567890,
+      "totalBytes": 6941530112,
+      "status": "paused",
+      "addedAt": "2024-01-15T14:30:00Z"
+    }
+  ],
+  "queued_downloads": [
+    {
+      "id": "uuid-456",
+      "modelVersionId": 398847,
+      "fileId": 345678,
+      "fileName": "gothic_neon_lora.safetensors",
+      "priority": 3,
+      "addedAt": "2024-01-15T14:35:00Z"
+    }
+  ]
+}
+10.3. Безопасное хранение API-ключа
+10.3.1. Архитектура безопасности
+Принцип: API-ключ хранится только в локальном Go-приложении, расширение его не видит.
+[Браузерное расширение]
+        ↓ (запрос без ключа)
+[POST localhost:8765/download]
+        ↓
+[Go Local Bridge]
+        ↓ (добавляет ключ из зашифрованного хранилища)
+[GET civitai.com/api/download/models/{id}?token={key}]
+10.3.2. Шифрование API-ключа
+Метод: AES-256-GCM с ключом, производным от машинного ID.
+Процесс:
+Первый запуск приложения:
+→ Пользователь вводит API-ключ через Tray-меню
+→ Генерируется машинный ID (хеш от MAC-адреса + hostname)
+→ Ключ шифруется AES-256-GCM
+→ Сохраняется в config.yaml как зашифрованная строка
+Последующие запуски:
+→ Приложение вычисляет машинный ID
+→ Дешифрует API-ключ из config.yaml
+→ Использует для запросов к Civitai
+Пример записи в config.yaml:
+
+api_key_encrypted: "aes256:aGVsbG8gd29ybGQ=..."  # Зашифрованный ключ
+machine_id_hash: "sha256:abc123..."
+10.3.3. Смена API-ключа
+Процесс через Tray-меню:
+⚙ Настройки → Сменить API-ключ
+→ Открывается модальное окно (или браузер на localhost)
+→ Пользователь вводит новый ключ
+→ Старый ключ перезаписывается новым (шифрованным)
+→ Уведомление: "🔑 API-ключ обновлен"
+10.3.4. Защита от XSS
+Проблема: Если расширение хранит ключ в chrome.storage.local, XSS-атака на сайте Civitai может его украсть.
+Решение: Расширение никогда не хранит и не видит API-ключ. Оно просто отправляет запрос на localhost:8765, а ключ подставляется на сервере.
+Дополнительная защита:
+Go-сервер принимает запросы только с 127.0.0.1
+Добавление секретного заголовка X-Bridge-Secret (генерируется при установке расширения)
+Rate limiting на локальном сервере (максимум 10 запросов в минуту от одного источника)
+10.4. Сохранение метаданных моделей
+10.4.1. Структура метаданных
+Файл: {modelName}.json рядом с моделью.
+Пример для ponyDiffusionV6XL_v6.safetensors:
+{
+  "civitai_metadata": {
+    "modelId": 257749,
+    "modelVersionId": 290640,
+    "fileId": 228616,
+    "modelName": "Pony Diffusion V6 XL",
+    "versionName": "V6 (start with this one)",
+    "modelType": "Checkpoint",
+    "baseModel": "SDXL",
+    "createdAt": "2024-01-10T12:00:00Z",
+    "updatedAt": "2024-01-15T08:30:00Z",
+    "downloadedAt": "2024-01-15T14:30:00Z"
+  },
+  "author": {
+    "username": "AstraliteHeart",
+    "userId": 492754,
+    "profileUrl": "https://civitai.com/user/AstraliteHeart"
+  },
+  "file_info": {
+    "fileName": "ponyDiffusionV6XL_v6.safetensors",
+    "fileSize": "6.46 GB",
+    "fileSizeBytes": 6941530112,
+    "format": "SafeTensor",
+    "sha256": "abc123..."
+  },
+  "description": "Pony Diffusion V6 is a versatile SDXL finetune capable of producing stunning SFW and NSFW visuals...",
+  "tags": ["SDXL", "Pony", "Checkpoint", "NSFW", "Anime", "Furry"],
+  "training_details": {
+    "dataset_size": "2.6M images",
+    "epochs": 150,
+    "learning_rate": "1e-6"
+  },
+  "recommended_settings": {
+    "clip_skip": 2,
+    "sampler": "Euler a",
+    "steps": 25,
+    "resolution": "1024x1024",
+    "prompt_template": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, {prompt}",
+    "negative_prompt": ""
+  },
+  "preview_images": [
+    "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/...",
+    "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/..."
+  ]
+}
+10.4.2. Скачивание превью-изображений
+Опция в конфиге:
+metadata:
+  save_json: true           # Сохранять JSON с метаданными
+  download_previews: true   # Скачивать превью-изображения
+  preview_format: "webp"    # Формат превью (webp/jpeg/png)
+  max_preview_count: 5      # Максимум превью для скачивания
+Структура файлов:
+
+models/Stable-diffusion/SDXL/
+├─ ponyDiffusionV6XL_v6.safetensors
+├─ ponyDiffusionV6XL_v6.json
+├─ ponyDiffusionV6XL_v6.preview/
+│  ├─ 001.webp
+│  ├─ 002.webp
+│  └─ 003.webp
+10.4.3. Интеграция с Lora Manager
+Lora Manager может использовать эти метаданные для:
+Отображения превью в интерфейсе
+Показа тегов и описания
+Автоматического применения рекомендуемых настроек
+Поиска моделей по тегам
+10.5. Механизмы интеграции с Lora Manager
+10.5.1. Варианты интеграции
+Конфигурация:
+lora_manager_integration:
+  enabled: true
+  
+  # Вариант 1: HTTP Webhook
+  webhook_url: "http://localhost:7860/api/models/refresh"
+  webhook_method: "POST"
+  webhook_headers:
+    Authorization: "Bearer your-token"
+    Content-Type: "application/json"
+  webhook_body_template: |
+    {
+      "action": "model_added",
+      "model_path": "{{.ModelPath}}",
+      "model_type": "{{.ModelType}}",
+      "metadata": {{.MetadataJSON}}
+    }
+  
+  # Вариант 2: Запуск скрипта
+  on_complete_script: "C:\\Scripts\\refresh_lora_manager.bat"
+  script_args:
+    - "{{.ModelPath}}"
+    - "{{.ModelType}}"
+  
+  # Вариант 3: Мониторинг файловой системы (Lora Manager сам увидит)
+  file_watcher_enabled: false  # Lora Manager использует fsnotify
+10.5.2. Сценарии интеграции
+Сценарий 1: Webhook (рекомендуется)
+1. Загрузка завершена
+2. Go-сервер отправляет POST-запрос на webhook_url
+3. Lora Manager получает уведомление
+4. Lora Manager сканирует папку и добавляет модель в базу
+5. Модель появляется в интерфейсе Lora Manager
+Сценарий 2: Скрипт
+
+1. Загрузка завершена
+2. Go-сервер запускает on_complete_script с аргументами
+3. Скрипт выполняет необходимые действия (например, curl к API Lora Manager)
+4. Lora Manager обновляет базу
+Сценарий 3: File Watcher
+
+1. Загрузка завершена
+2. Файл сохраняется в папку
+3. Lora Manager (использующий fsnotify) автоматически обнаруживает новый файл
+4. Lora Manager сканирует и добавляет модель
+10.5.3. Обработка ошибок интеграции
+
+Если webhook недоступупен:
+→ Попытка 1: Отправить webhook
+→ Ошибка: Connection refused
+→ Логирование: "⚠ Webhook недоступен, повтор через 30 сек"
+→ Попытка 2 (через 30 сек): Отправить webhook
+→ Успех → Уведомление: "✅ Lora Manager обновлен"
+Максимум попыток: 3, затем уведомление пользователя о необходимости ручной проверки.
+
+10.6. Поддержка NSFW-контента
+
+10.6.1. Конфигурация NSFW
+
+nsfw_settings:
+  allow_nsfw: true              # Разрешить скачивание NSFW-моделей
+  nsfw_level_threshold: "explicit"  # Минимальный уровень (safe/questionable/explicit)
+  separate_folder: true         # Сохранять NSFW в отдельную папку
+  nsfw_folder_suffix: "_NSFW"   # Суффикс для папки (например, Lora/SDXL_NSFW)
+10.6.2. Определение NSFW-статуса
+
+Из API-ответа modelVersion.getById:
+{
+  "nsfw": true,
+  "nsfwLevel": "explicit",
+  "browsingLevel": 31
+}
+Логика маршрутизации:
+
+if model.NSFW && config.NSFWSettings.SeparateFolder {
+    savePath = filepath.Join(basePath, "Lora", "SDXL_NSFW", fileName)
+} else {
+    savePath = filepath.Join(basePath, "Lora", "SDXL", fileName)
+}
+10.6.3. Предупреждения
+Если allow_nsfw: false, а модель NSFW:
+→ Загрузка отклонена
+→ Уведомление: "🚫 Модель содержит NSFW-контент. Включите allow_nsfw в настройках"
+→ Логирование попытки
+10.7. Управление версиями и обновлениями
+10.7.1. Версионирование приложения
+Схема версионирования: SemVer (MAJOR.MINOR.PATCH)
+Пример: 1.2.3
+1 — мажорная версия (несовместимые изменения API)
+2 — минорная версия (новая функциональность)
+3 — патч (исправления багов)
+Хранение версии:
+// В коде
+const AppVersion = "1.2.3"
+
+// В config.yaml
+app_version: "1.2.3"
+config_version: "1.0"  # Версия схемы конфига
+10.7.2. Автоматические обновления
+Механизм: GitHub Releases + github.com/rhysd/go-github-selfupdate
+Процесс:
+1. При запуске приложения (или раз в 24 часа)
+2. Проверка последней версии на GitHub Releases
+3. Если новая версия доступна:
+   → Уведомление: "🔄 Доступна новая версия 1.3.0 (текущая: 1.2.3)"
+   → Кнопки: [Обновить сейчас] [Позже] [Не спрашивать]
+4. При нажатии "Обновить сейчас":
+   → Скачивание нового бинарника
+   → Замена старого файла
+   → Перезапуск приложения
+Конфигурация:
+
+updates:
+  auto_check: true           # Автоматически проверять обновления
+  check_interval_hours: 24   # Интервал проверки
+  auto_download: false       # Автоматически скачивать (требует подтверждения)
+  github_repo: "username/civitai-smart-downloader"
+10.7.3. Миграция конфигурации
+Проблема: При обновлении приложения структура конфига может измениться.
+Решение: Версионирование конфига + миграции.
+Пример:
+# Старый конфиг (config_version: 1.0)
+paths:
+  lora: "D:\\Models\\Lora"
+
+# Новый конфиг (config_version: 2.0)
+paths:
+  root: "D:\\Models"
+  # Подпапки создаются автоматически
+Миграция:
+
+if configVersion == "1.0" {
+    // Автоматически преобразовать старый формат в новый
+    newConfig.Paths.Root = oldConfig.Paths.Lora + "\\.."
+    newConfig.ConfigVersion = "2.0"
+    // Сохранить обновленный конфиг
+}
+10.7.4. Откат версии
+
+Требование: Возможность откатиться на предыдущую версию.
+Реализация:
+Хранение предыдущей версии бинарника (app.exe.old)
+Tray-меню: ⚙ Настройки → Откатить версию
+Восстановление app.exe.old → app.exe
+Перезапуск
+10.8. Дополнительные требования к надежности
+10.8.1. Graceful Shutdown
+Сценарий: Пользователь закрывает приложение во время активной загрузки.
+Поведение:
+1. Получен сигнал SIGTERM/SIGINT
+2. Пауза всех активных загрузок (сохранение прогресса)
+3. Ожидание завершения текущих операций (максимум 10 сек)
+4. Сохранение состояния очереди в queue.json
+5. Корректное завершение работы
+6. Уведомление: "⏸ Загрузки приостановлены. Возобновятся при следующем запуске"
+10.8.2. Восстановление после сбоя
+Сценарий: Приложение упало во время загрузки.
+Поведение при следующем запуске:
+1. Чтение queue.json
+2. Обнаружение незавершенных загрузок
+3. Уведомление: "🔄 Найдено 2 незавершенные загрузки. Возобновить?"
+4. При подтверждении:
+   → Проверка наличия частично скачанных файлов
+   → Возобновление с последней точки (используя Range-заголовки)
+10.8.3. Логирование
+Уровни логов:
+logging:
+  level: "info"              # debug, info, warn, error
+  file: "logs/app.log"       # Путь к файлу логов
+  max_size_mb: 100           # Максимальный размер файла
+  max_backups: 5             # Количество архивных файлов
+  compress: true             # Сжимать старые логи
+Структура лога:
+{
+  "timestamp": "2024-01-15T14:30:00Z",
+  "level": "info",
+  "message": "Download started",
+  "modelVersionId": 290640,
+  "fileName": "ponyDiffusionV6XL_v6.safetensors",
+  "fileSize": "6.46 GB"
+}
+Типы событий для логирования:
+Запуск/остановка приложения
+Начало/пауза/возобновление/завершение загрузок
+Ошибки API и сети
+Изменения конфигурации
+Обновления приложения
+10.9. Производительность и оптимизация
+10.9.1. Ограничения ресурсов
+performance:
+  max_memory_mb: 512              # Максимальное использование RAM
+  max_cpu_percent: 50             # Максимальная загрузка CPU
+  download_buffer_size_mb: 8      # Размер буфера для скачивания
+  disk_write_buffer_mb: 32        # Буфер записи на диск
+10.9.2. Оптимизация скачивания
+Чанковое скачивание:
+// Размер чанка: 1 MB
+const chunkSize = 1024 * 1024
+
+// Скачивание чанками с записью в буфер
+buffer := make([]byte, chunkSize)
+for {
+    n, err := response.Body.Read(buffer)
+    if n > 0 {
+        file.Write(buffer[:n])
+        downloadedBytes += int64(n)
+        updateProgress(downloadedBytes, totalBytes)
+    }
+    if err == io.EOF {
+        break
+    }
+}
+Многопоточное скачивание (опционально через aria2c):
+aria2c:
+  enabled: false                    # Использовать aria2c вместо встроенного загрузчика
+  binary_path: "C:\\aria2c.exe"    # Путь к aria2c
+  max_connections: 16               # Количество соединений на файл
+  min_split_size_mb: 10             # Минимальный размер части для разделения
+10.9.3. Кэширование метаданных
+Проблема: Повторные запросы к API для уже скачанных моделей.
+Решение: Локальный кэш в SQLite или BoltDB.
+cache:
+  enabled: true
+  storage: "bolt"              # bolt или sqlite
+  path: "cache/metadata.db"
+  ttl_hours: 168               # Время жизни кэша (7 дней)
+Использование:
+
+// Перед запросом к API проверяем кэш
+if cached := cache.Get(modelVersionId); cached != nil {
+    return cached, nil
+}
+
+// Если нет в кэше — делаем запрос к API
+metadata := fetchFromAPI(modelVersionId)
+cache.Set(modelVersionId, metadata)
+return metadata, nil
+
