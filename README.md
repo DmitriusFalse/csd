@@ -44,6 +44,14 @@ Load from `extension/.output/chrome-mv3/` into Chrome:
 2. Set the root save path for models
 3. Open a model page on civitai.com — a "Download via CSD" button will appear
 
+### Screenshots
+
+| Popup (EN) | Popup (RU) |
+|---|---|
+| ![Popup EN](screenshots/extension_en.png) | ![Popup RU](screenshots/extension__ru.png) |
+| **Settings (EN)** | **Settings (RU)** |
+| ![Settings EN](screenshots/extension__settings_en.png) | ![Settings RU](screenshots/extension__settings_ru.png) |
+
 ### i18n / Localization
 
 The extension and server tray support English and Russian. Language is auto-detected from your browser/system language. You can switch manually:
