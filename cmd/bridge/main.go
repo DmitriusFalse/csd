@@ -21,7 +21,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const appVersion = "0.7.4.15"
+const appVersion = "8.0.20"
 
 func main() {
 	headless := os.Getenv("CSD_HEADLESS") == "1" || os.Getenv("CSD_HEADLESS") == "true"
@@ -92,7 +92,7 @@ func main() {
 		}()
 
 		// Tray MUST run on main goroutine for Windows message pump
-		tray.Run(manager, cfg.RootPath, func() {
+		tray.Run(manager, cfg.RootPath, appVersion, func() {
 			shutdownOnce.Do(func() { close(shutdownCh) })
 		})
 

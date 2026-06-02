@@ -20,14 +20,16 @@ var iconFS embed.FS
 var (
 	defaultIcon []byte
 
-	manager  *downloader.Manager
-	rootPath string
-	onExitFn func()
+	manager   *downloader.Manager
+	rootPath  string
+	appVersion string
+	onExitFn  func()
 )
 
-func Run(mgr *downloader.Manager, root string, onExit func()) {
+func Run(mgr *downloader.Manager, root, version string, onExit func()) {
 	manager = mgr
 	rootPath = root
+	appVersion = version
 	onExitFn = onExit
 
 	var err error
@@ -41,12 +43,12 @@ func Run(mgr *downloader.Manager, root string, onExit func()) {
 
 func onReady() {
 	systray.SetTitle("CSD")
-	systray.SetTooltip("Civitai Smart Downloader")
+	systray.SetTooltip("Civitai Smart Downloader v" + appVersion)
 	if len(defaultIcon) > 0 {
 		systray.SetTemplateIcon(defaultIcon, defaultIcon)
 	}
 
-	titleItem := systray.AddMenuItem("Civitai Smart Downloader", "Civitai Smart Downloader")
+	titleItem := systray.AddMenuItem("Civitai Smart Downloader v"+appVersion, "Civitai Smart Downloader")
 	titleItem.Disable()
 
 	systray.AddSeparator()
@@ -67,6 +69,12 @@ func onReady() {
 
 	systray.AddSeparator()
 
+	donateItem := systray.AddMenuItem("❤ Поддержать", "Donate")
+	boostyItem := donateItem.AddSubMenuItem("Boosty", "Donate via Boosty")
+	patreonItem := donateItem.AddSubMenuItem("Patreon", "Donate via Patreon")
+
+	systray.AddSeparator()
+
 	quitItem := systray.AddMenuItem("❌ Выход", "Quit")
 
 	openFolderItem.Click(func() {
@@ -83,6 +91,14 @@ func onReady() {
 
 	civitaiRedItem.Click(func() {
 		openURL("https://civitai.red")
+	})
+
+	boostyItem.Click(func() {
+		openURL("https://boosty.to/sir.geronis/donate")
+	})
+
+	patreonItem.Click(func() {
+		openURL("https://www.patreon.com/16134050/join")
 	})
 
 	pauseAllItem.Click(func() {
@@ -107,7 +123,7 @@ func onReady() {
 		}
 		lastUpdate = time.Now()
 
-		tooltip := "Civitai Smart Downloader"
+		tooltip := "Civitai Smart Downloader v" + appVersion
 		if activeCount > 0 {
 			tooltip += fmt.Sprintf(" | %d active, %d queued", activeCount, queueLen)
 		}
