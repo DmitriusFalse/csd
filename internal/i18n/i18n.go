@@ -44,7 +44,7 @@ var (
 	OpenFolder    = Tt("📂 Open downloads folder", "📂 Открыть папку загрузок")
 	OpenConfig    = Tt("📄 Open config.yaml", "📄 Открыть config.yaml")
 	Sites         = Tt("🌐 Websites", "🌐 Сайты")
-	AutoStart     = Tt("🔄 Auto start", "🔄 Автозагрузка")
+	AutoStart     = Tt("🔄 Run on Windows startup", "🔄 Запуск при старте Windows")
 	Donate        = Tt("❤️ Donate", "❤ Поддержать")
 	Quit          = Tt("❌ Quit", "❌ Выход")
 	Language      = Tt("🌐 Language", "🌐 Язык")
