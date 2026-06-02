@@ -28,6 +28,9 @@ dist/
 *.swo
 *~
 
+# Docs
+docs/
+
 # App runtime
 config.yaml
 config.yml
