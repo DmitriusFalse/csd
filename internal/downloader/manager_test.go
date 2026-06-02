@@ -358,7 +358,7 @@ func TestSetOnUpdate(t *testing.T) {
 	defer mgr.Shutdown()
 
 	called := false
-	mgr.SetOnUpdate(func() {
+	mgr.SetOnUpdate(func(active int, queued int) {
 		called = true
 	})
 

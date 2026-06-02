@@ -109,9 +109,7 @@ func onReady() {
 		systray.Quit()
 	})
 
-	manager.SetOnUpdate(func() {
-		activeCount := manager.GetActiveCount()
-		queueLen := manager.GetQueueLength()
+	manager.SetOnUpdate(func(activeCount int, queueLen int) {
 		activeDownloadsItem.SetTitle(fmt.Sprintf("📥 Активные загрузки (active: %d, queued: %d)", activeCount, queueLen))
 
 		tooltip := "Civitai Smart Downloader"

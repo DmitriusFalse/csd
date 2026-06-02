@@ -32,7 +32,7 @@ type Manager struct {
 	cancel        context.CancelFunc
 	webhookURL    string
 	webhookMethod string
-	onUpdate      func()
+	onUpdate      func(active int, queued int)
 }
 
 func NewManager(cfg *config.Config, civitaiClient api.ModelInfoFetcher) *Manager {
@@ -53,13 +53,13 @@ func NewManager(cfg *config.Config, civitaiClient api.ModelInfoFetcher) *Manager
 	return m
 }
 
-func (m *Manager) SetOnUpdate(fn func()) {
+func (m *Manager) SetOnUpdate(fn func(active int, queued int)) {
 	m.onUpdate = fn
 }
 
 func (m *Manager) notifyUpdate() {
 	if m.onUpdate != nil {
-		m.onUpdate()
+		m.onUpdate(m.active, len(m.queue))
 	}
 }
 
