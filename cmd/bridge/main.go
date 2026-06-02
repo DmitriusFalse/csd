@@ -1,3 +1,4 @@
+//go:generate windres -i bridge.rc -o bridge.syso -O coff
 package main
 
 import (
