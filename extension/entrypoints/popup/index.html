@@ -40,6 +40,14 @@
         <ul>
           <li><b>Порт сервера</b> — должен совпадать с портом в <code>config.yaml</code></li>
           <li><b>API-ключ</b> — опционально, можно указать в <code>config.yaml</code></li>
+          <li><b>Путь из LM</b> — автоматически определяет корень для каждого типа модели через Lora Manager</li>
+        </ul>
+        <hr>
+        <p><b>Lora Manager:</b></p>
+        <ul>
+          <li>Укажи URL (по умолч. <code>http://127.0.0.1:8188</code>)</li>
+          <li>Галка <b>«Путь из LM»</b> — путь для LoRA/LyCORIS/Checkpoints берётся из LM</li>
+          <li>Если LM не отвечает или тип не поддерживается — используется путь по умолчанию</li>
         </ul>
         <hr>
         <p><b>Где искать:</b></p>
@@ -71,7 +79,7 @@
         </div>
       </div>
       <div class="cfg-group">
-        <label>Путь сохранения моделей</label>
+        <label title="Путь по умолчанию. Если включена 'Путь из LM' — корень берётся из Lora Manager для каждого типа модели">Путь сохранения моделей</label>
         <input id="cfg-root-path" placeholder="D:/AI/Models">
       </div>
       <div class="cfg-webhook-row">
