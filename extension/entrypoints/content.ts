@@ -321,13 +321,13 @@ function injectCardButtons() {
     btn.title = 'Download via CSD'
     btn.style.cssText = [
       'width:30px', 'height:30px', 'border-radius:50%', 'border:none',
-      'background:rgba(120,80,180,0.15)', 'color:rgb(160,130,200)',
+      'background:rgba(120,80,180,0.5)', 'color:rgb(200,180,240)',
       'cursor:pointer', 'display:flex', 'align-items:center', 'justify-content:center',
-      'transition:background 0.15s', 'flex-shrink:0',
+      'transition:background 0.15s', 'flex-shrink:0', 'box-shadow:0 0 6px rgba(120,80,180,0.3)',
     ].join(';')
 
-    btn.addEventListener('mouseenter', () => { btn.style.background = 'rgba(120,80,180,0.3)' })
-    btn.addEventListener('mouseleave', () => { btn.style.background = downloaded ? 'rgba(16,185,129,0.2)' : 'rgba(120,80,180,0.15)' })
+    btn.addEventListener('mouseenter', () => { btn.style.background = 'rgba(120,80,180,0.7)' })
+    btn.addEventListener('mouseleave', () => { btn.style.background = downloaded ? 'rgba(16,185,129,0.25)' : 'rgba(120,80,180,0.5)' })
 
     let downloaded = false
     chrome.runtime.sendMessage({
