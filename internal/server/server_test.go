@@ -532,3 +532,74 @@ func TestConfigPageEndpoint(t *testing.T) {
 		t.Errorf("expected HTML content type, got %s", ct)
 	}
 }
+
+func TestCheckDownloaded_MissingParams(t *testing.T) {
+	cfg := &config.Config{
+		Server:   config.ServerConfig{Port: 8765, Host: "127.0.0.1"},
+		APIKey:   "test",
+		RootPath: t.TempDir(),
+		Logging:  config.LoggingConfig{Level: "error"},
+	}
+	s, _ := newTestServer(t, cfg)
+
+	req := httptest.NewRequest("GET", "/api/check-downloaded", nil)
+	resp, _ := s.app.Test(req)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestCheckDownloaded_NoLmConnection(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	cfg := &config.Config{
+		Server:   config.ServerConfig{Port: 8765, Host: "127.0.0.1"},
+		APIKey:   "test",
+		RootPath: t.TempDir(),
+		Logging:  config.LoggingConfig{Level: "error"},
+		LoraMgr:  config.LoraManager{BaseURL: "http://127.0.0.1:1"},
+	}
+	config.Save(*cfg, cfgPath)
+	mock := &mockCivitaiClient{}
+	mgr := downloader.NewManager(cfg, mock)
+	s := New(cfg.Server.Host, cfg.Server.Port, mgr, cfgPath, "")
+
+	req := httptest.NewRequest("GET", "/api/check-downloaded?name=test&type=LORA", nil)
+	resp, _ := s.app.Test(req)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if body["downloaded"] != false {
+		t.Errorf("expected downloaded=false when LM unreachable, got %v", body["downloaded"])
+	}
+}
+
+func TestCivitaiToLmTypes(t *testing.T) {
+	tests := []struct{ input string; expected []string }{
+		{"LORA", []string{"loras"}},
+		{"LoRA", []string{"loras"}},
+		{"lora", []string{"loras"}},
+		{"Checkpoint", []string{"checkpoints"}},
+		{"CHECKPOINT", []string{"checkpoints"}},
+		{"TextualInversion", []string{"embeddings"}},
+		{"Embedding", []string{"embeddings"}},
+		{"Hypernetwork", []string{"hypernetworks"}},
+		{"unknown", []string{"loras", "checkpoints", "embeddings"}},
+		{"", []string{"loras", "checkpoints", "embeddings"}},
+	}
+	for _, tt := range tests {
+		result := civitaiToLmTypes(tt.input)
+		if len(result) != len(tt.expected) {
+			t.Errorf("civitaiToLmTypes(%q) length: got %v, want %v", tt.input, result, tt.expected)
+			continue
+		}
+		for i := range result {
+			if result[i] != tt.expected[i] {
+				t.Errorf("civitaiToLmTypes(%q)[%d]: got %s, want %s", tt.input, i, result[i], tt.expected[i])
+			}
+		}
+	}
+}

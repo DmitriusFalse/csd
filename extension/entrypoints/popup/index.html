@@ -18,8 +18,37 @@
             <circle cx="12" cy="12" r="3"/>
           </svg>
         </button>
+        <button id="toggle-help" class="icon-btn" title="Помощь">?</button>
       </div>
     </header>
+
+    <section id="help-section" class="help-panel">
+      <h2>❓ Помощь</h2>
+      <div class="help-content">
+        <p><b>Civitai Smart Downloader</b></p>
+        <p>Расширение для скачивания моделей с Civitai через локальный сервер.</p>
+        <hr>
+        <p><b>Как использовать:</b></p>
+        <ol>
+          <li>Запусти <code>csd-bridge.exe</code> (сервер)</li>
+          <li>Нажми на зелёную точку 🟢 в попапе — проверить подключение</li>
+          <li>Зайди на civitai.com или civitai.red</li>
+          <li>Нажми фиолетовую кнопку "Download via CSD" на странице модели</li>
+        </ol>
+        <hr>
+        <p><b>Настройки ⚙:</b></p>
+        <ul>
+          <li><b>Порт сервера</b> — должен совпадать с портом в <code>config.yaml</code></li>
+          <li><b>API-ключ</b> — опционально, можно указать в <code>config.yaml</code></li>
+        </ul>
+        <hr>
+        <p><b>Где искать:</b></p>
+        <ul>
+          <li>Логи сервера: кнопка 📄 в настройках</li>
+          <li>Config: открой <code>config.yaml</code> рядом с <code>csd-bridge.exe</code></li>
+        </ul>
+      </div>
+    </section>
 
     <section id="config-section" class="config-panel">
       <h2>⚙ Настройки</h2>
@@ -63,9 +92,9 @@
       </div>
       <div class="cfg-webhook-row">
         <div class="cfg-group cfg-webhook-port">
-          <label>Порт Lora Manager (webhook)</label>
+          <label>Lora Manager URL</label>
           <div class="cfg-port-row">
-            <input type="number" id="cfg-webhook-port" placeholder="8188" min="1" max="65535">
+            <input id="cfg-lm-url" placeholder="http://127.0.0.1:8188">
             <span id="cfg-webhook-status" class="wh-dot" title="Проверить подключение"></span>
           </div>
         </div>
@@ -96,7 +125,7 @@
       <p id="history-empty" class="empty-state">История пуста</p>
     </section>
 
-    <footer>v0.7.4.11</footer>
+    <footer>v0.7.4.17</footer>
   </div>
 
   <script type="module" src="main.ts"></script>

@@ -26,6 +26,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.LoraMgr.Enabled != false {
 		t.Errorf("expected lora enabled false, got %v", cfg.LoraMgr.Enabled)
 	}
+	if cfg.LoraMgr.BaseURL != "http://127.0.0.1:8188" {
+		t.Errorf("unexpected base url: %s", cfg.LoraMgr.BaseURL)
+	}
 	if cfg.LoraMgr.WebhookURL != "http://127.0.0.1:8188/api/lm/loras/scan?full_rebuild=false" {
 		t.Errorf("unexpected webhook url: %s", cfg.LoraMgr.WebhookURL)
 	}
@@ -180,6 +183,7 @@ func TestRoundTripPreservesAllFields(t *testing.T) {
 		},
 		LoraMgr: LoraManager{
 			Enabled:       true,
+			BaseURL:       "http://localhost:8188",
 			WebhookURL:    "http://test:9999/webhook",
 			WebhookMethod: "POST",
 		},
@@ -225,6 +229,7 @@ func TestRoundTripPreservesAllFields(t *testing.T) {
 	if loaded.Queue.RetryDelaySec != 120 { t.Errorf("Queue.RetryDelaySec") }
 	if loaded.Queue.RateLimitDelayMs != 500 { t.Errorf("Queue.RateLimitDelayMs") }
 	if loaded.LoraMgr.Enabled != true { t.Errorf("LoraMgr.Enabled") }
+	if loaded.LoraMgr.BaseURL != "http://localhost:8188" { t.Errorf("LoraMgr.BaseURL") }
 	if loaded.LoraMgr.WebhookURL != "http://test:9999/webhook" { t.Errorf("LoraMgr.WebhookURL") }
 	if loaded.LoraMgr.WebhookMethod != "POST" { t.Errorf("LoraMgr.WebhookMethod") }
 	if loaded.Metadata.SaveJSON != false { t.Errorf("Metadata.SaveJSON") }

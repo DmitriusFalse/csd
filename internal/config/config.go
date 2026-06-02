@@ -32,8 +32,9 @@ type QueueConfig struct {
 }
 
 type LoraManager struct {
-	Enabled      bool   `yaml:"enabled"`
-	WebhookURL   string `yaml:"webhook_url"`
+	Enabled       bool   `yaml:"enabled"`
+	BaseURL       string `yaml:"base_url"`
+	WebhookURL    string `yaml:"webhook_url"`
 	WebhookMethod string `yaml:"webhook_method"`
 }
 
@@ -78,6 +79,7 @@ var defaultConfig = Config{
 	},
 	LoraMgr: LoraManager{
 		Enabled:       false,
+		BaseURL:       "http://127.0.0.1:8188",
 		WebhookURL:    "http://127.0.0.1:8188/api/lm/loras/scan?full_rebuild=false",
 		WebhookMethod: "GET",
 	},

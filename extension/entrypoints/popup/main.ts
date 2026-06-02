@@ -1,6 +1,7 @@
 const DEFAULT_PORT = 8765
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let configOpen = false
+let helpOpen = false
 
 function $<T = HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null
@@ -171,9 +172,9 @@ async function loadConfig() {
     setChecked('cfg-sep-folder', cfg.separate_folder)
     setChecked('cfg-save-json', cfg.save_json)
     setValue('cfg-log-level', cfg.log_level)
-    const whPort = cfg.webhook_url ? extractPort(cfg.webhook_url) : ''
-    setValue('cfg-webhook-port', whPort)
+    setValue('cfg-lm-url', cfg.lm_base_url || 'http://127.0.0.1:8188')
     setChecked('cfg-lora-enabled', cfg.lora_enabled)
+    const whPort = cfg.webhook_url ? extractPort(cfg.webhook_url) : ''
     checkWebhook(whPort)
     if (statusEl) { statusEl.textContent = ''; statusEl.className = 'cfg-status' }
   } catch (e: any) {
@@ -214,7 +215,8 @@ function setChecked(id: string, v: any) {
 }
 
 async function saveConfig() {
-  const whPort = getValue('cfg-webhook-port')
+  const lmBaseURL = getValue('cfg-lm-url') || 'http://127.0.0.1:8188'
+  const whPort = extractPort(lmBaseURL)
   const cfg = {
     root_path: getValue('cfg-root-path'),
     max_concurrent: parseInt(getValue('cfg-max-concurrent')) || 2,
@@ -225,6 +227,7 @@ async function saveConfig() {
     save_json: getChecked('cfg-save-json'),
     log_level: getValue('cfg-log-level'),
     lora_enabled: getChecked('cfg-lora-enabled'),
+    lm_base_url: lmBaseURL,
     webhook_url: buildWebhookUrl(whPort),
   }
   const port = parseInt($<HTMLInputElement>('server-port')?.value || String(DEFAULT_PORT))
@@ -253,7 +256,29 @@ function toggleConfig() {
   if (!panel) return
   configOpen = !configOpen
   panel.classList.toggle('open', configOpen)
-  if (configOpen) loadConfig()
+  if (configOpen) { loadConfig(); closeHelp() }
+}
+
+function toggleHelp() {
+  const panel = $('help-section')
+  if (!panel) return
+  helpOpen = !helpOpen
+  panel.classList.toggle('open', helpOpen)
+  if (helpOpen) closeConfig()
+}
+
+function closeConfig() {
+  const panel = $('config-section')
+  if (!panel) return
+  configOpen = false
+  panel.classList.remove('open')
+}
+
+function closeHelp() {
+  const panel = $('help-section')
+  if (!panel) return
+  helpOpen = false
+  panel.classList.remove('open')
 }
 
 function getValue(id: string): string {
@@ -336,6 +361,7 @@ async function init() {
   }
 
   $('toggle-config')!.onclick = toggleConfig
+  $('toggle-help')!.onclick = toggleHelp
   $('cfg-save')!.onclick = saveConfig
 
   await checkConnection()

@@ -1,18 +1,24 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/DmitriusFalse/csd/internal/config"
 	"github.com/DmitriusFalse/csd/internal/downloader"
+	"github.com/DmitriusFalse/csd/internal/logger"
 	"github.com/DmitriusFalse/csd/internal/models"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"go.uber.org/zap"
 )
 
 type Server struct {
@@ -133,8 +139,9 @@ func (s *Server) setupRoutes() {
 			"separate_folder":    cfg.NSFW.SeparateFolder,
 			"save_json":          cfg.Metadata.SaveJSON,
 			"log_level":          cfg.Logging.Level,
-			"lora_enabled":       cfg.LoraMgr.Enabled,
-			"webhook_url":        cfg.LoraMgr.WebhookURL,
+		"lora_enabled":       cfg.LoraMgr.Enabled,
+		"lm_base_url":        cfg.LoraMgr.BaseURL,
+		"webhook_url":        cfg.LoraMgr.WebhookURL,
 		})
 	})
 
@@ -192,6 +199,11 @@ func (s *Server) setupRoutes() {
 				cfg.LoraMgr.Enabled = b
 			}
 		}
+		if v, ok := updates["lm_base_url"]; ok {
+			if s, ok := v.(string); ok {
+				cfg.LoraMgr.BaseURL = s
+			}
+		}
 		if v, ok := updates["webhook_url"]; ok {
 			if s, ok := v.(string); ok {
 				cfg.LoraMgr.WebhookURL = s
@@ -206,6 +218,192 @@ func (s *Server) setupRoutes() {
 	s.app.Get("/tasks", func(c *fiber.Ctx) error {
 		return c.JSON(s.manager.GetTasksGrouped())
 	})
+
+	s.app.Get("/api/check-downloaded", s.handleCheckDownloaded)
+	s.app.Get("/api/check-lm-health", s.handleCheckLMHealth)
+}
+
+func (s *Server) handleCheckDownloaded(c *fiber.Ctx) error {
+	name := c.Query("name")
+	modelType := c.Query("type")
+	if name == "" || modelType == "" {
+		return jsonError(c, http.StatusBadRequest, models.NewAPIError(
+			models.ErrCodeInvalidRequest, "name and type params required", 400, false,
+		))
+	}
+
+	cfg, err := config.Load(s.configPath)
+	if err != nil {
+		return jsonError(c, http.StatusInternalServerError, models.NewAPIError(
+			models.ErrCodeServerError, "failed to load config", 500, false,
+		))
+	}
+
+	logger.Log.Debug("check-downloaded",
+		zap.String("name", name),
+		zap.String("type", modelType),
+		zap.String("lm_base_url", cfg.LoraMgr.BaseURL),
+	)
+
+	found, item := checkLoraManager(cfg.LoraMgr.BaseURL, modelType, name)
+	logger.Log.Debug("check-downloaded result", zap.Bool("found", found))
+	if found {
+		return c.JSON(fiber.Map{"downloaded": true, "source": "lm", "item": item})
+	}
+	return c.JSON(fiber.Map{"downloaded": false})
+}
+
+func (s *Server) handleCheckLMHealth(c *fiber.Ctx) error {
+	cfg, err := config.Load(s.configPath)
+	if err != nil {
+		return c.JSON(fiber.Map{"reachable": false, "error": "config load failed"})
+	}
+	baseURL := cfg.LoraMgr.BaseURL
+	if baseURL == "" {
+		return c.JSON(fiber.Map{"reachable": false, "error": "lm_base_url not configured"})
+	}
+	resp, err := http.Get(baseURL + "/api/lm/loras/list?page_size=1")
+	if err != nil {
+		return c.JSON(fiber.Map{"reachable": false, "error": err.Error()})
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return c.JSON(fiber.Map{
+		"reachable": resp.StatusCode == http.StatusOK,
+		"status":    resp.StatusCode,
+		"body_preview": string(body)[:min(len(string(body)), 200)],
+	})
+}
+
+func checkLoraManager(baseURL, modelType, modelName string) (bool, map[string]interface{}) {
+	if baseURL == "" {
+		return false, nil
+	}
+
+	types := civitaiToLmTypes(modelType)
+
+	for _, t := range types {
+		base, err := url.Parse(baseURL + "/api/lm/" + t + "/list")
+		if err != nil {
+			logger.Log.Debug("check-downloaded: bad base url", zap.Error(err))
+			continue
+		}
+
+		for _, params := range []url.Values{
+			{"search": {modelName}, "fuzzy": {"true"}, "search_filename": {"true"}, "page_size": {"20"}},
+			{"search": {modelName}, "page_size": {"20"}},
+			{"search_modelname": {modelName}, "page_size": {"20"}},
+			{"search_filename": {modelName}, "page_size": {"20"}},
+		} {
+			base.RawQuery = params.Encode()
+			urlStr := base.String()
+			logger.Log.Debug("check-downloaded: requesting lm", zap.String("url", urlStr))
+
+			resp, err := http.Get(urlStr)
+			if err != nil {
+				logger.Log.Debug("check-downloaded: lm request failed", zap.String("type", t), zap.Error(err))
+				continue
+			}
+
+			body, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err != nil {
+				continue
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				logger.Log.Debug("check-downloaded: lm bad status", zap.Int("status", resp.StatusCode), zap.String("body", string(body)))
+				continue
+			}
+
+			items := parseLmListResponse(body)
+			logger.Log.Debug("check-downloaded: lm items", zap.Int("count", len(items)), zap.String("body", string(body)))
+
+			searchName := strings.ToLower(modelName)
+			for _, item := range items {
+				for _, key := range []string{"name", "filename", "model_name", "title", "file_name", "modelName", "fileName"} {
+					if val, ok := item[key].(string); ok {
+						if strings.Contains(strings.ToLower(val), searchName) {
+							logger.Log.Debug("check-downloaded: matched", zap.String("key", key), zap.String("val", val))
+							return true, item
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return false, nil
+}
+
+func parseLmListResponse(body []byte) []map[string]interface{} {
+	// format 1: { "items": [...] }
+	var withItems struct {
+		Items []map[string]interface{} `json:"items"`
+	}
+	if json.Unmarshal(body, &withItems) == nil && len(withItems.Items) > 0 {
+		return withItems.Items
+	}
+
+	// format 2: { "data": [...] }
+	var withData struct {
+		Data []map[string]interface{} `json:"data"`
+	}
+	if json.Unmarshal(body, &withData) == nil && len(withData.Data) > 0 {
+		return withData.Data
+	}
+
+	// format 3: [...] (direct array)
+	var arr []map[string]interface{}
+	if json.Unmarshal(body, &arr) == nil && len(arr) > 0 {
+		return arr
+	}
+
+	// format 4: { "models": [...] }
+	var obj map[string]interface{}
+	if json.Unmarshal(body, &obj) == nil {
+		if list, ok := obj["models"].([]interface{}); ok {
+			var result []map[string]interface{}
+			for _, m := range list {
+				if mm, ok := m.(map[string]interface{}); ok {
+					result = append(result, mm)
+				}
+			}
+			if len(result) > 0 {
+				return result
+			}
+		}
+		// format 5: { "results": [...] }
+		if list, ok := obj["results"].([]interface{}); ok {
+			var result []map[string]interface{}
+			for _, m := range list {
+				if mm, ok := m.(map[string]interface{}); ok {
+					result = append(result, mm)
+				}
+			}
+			if len(result) > 0 {
+				return result
+			}
+		}
+	}
+
+	return nil
+}
+
+func civitaiToLmTypes(civitaiType string) []string {
+	t := strings.ToLower(civitaiType)
+	switch t {
+	case "lora", "loras":
+		return []string{"loras"}
+	case "checkpoint", "checkpoints", "ckpt":
+		return []string{"checkpoints"}
+	case "textualinversion", "textual inversion", "embedding", "embeddings":
+		return []string{"embeddings"}
+	case "hypernetwork", "hypernetworks":
+		return []string{"hypernetworks"}
+	default:
+		return []string{"loras", "checkpoints", "embeddings"}
+	}
 }
 
 func (s *Server) handleDownload(c *fiber.Ctx) error {
@@ -377,11 +575,12 @@ h1{font-size:18px;margin-bottom:20px;background:linear-gradient(135deg,#667eea,#
 <h2>Логи</h2>
 <div class="row"><label>Уровень</label><select id="log_level"><option>debug</option><option>info</option><option>warn</option><option>error</option></select></div>
 </div>
-<div class="section">
-<h2>Lora Manager</h2>
-<div class="row check"><input type="checkbox" id="lora_enabled"><label for="lora_enabled">Включить webhook</label></div>
-<div class="row"><label>Webhook URL</label><input id="webhook_url"></div>
-</div>
+		<div class="section">
+		<h2>Lora Manager</h2>
+		<div class="row check"><input type="checkbox" id="lora_enabled"><label for="lora_enabled">Включить webhook</label></div>
+		<div class="row"><label>Base URL</label><input id="lm_base_url"></div>
+		<div class="row"><label>Webhook URL</label><input id="webhook_url"></div>
+		</div>
 <button class="btn" onclick="save()">Сохранить</button>
 <script>
 async function load(){
@@ -392,7 +591,7 @@ async function load(){
     set('retry_attempts',d.retry_attempts);set('retry_delay_seconds',d.retry_delay_seconds);
     setChk('allow_nsfw',d.allow_nsfw);setChk('separate_folder',d.separate_folder);
     setChk('save_json',d.save_json);set('log_level',d.log_level);
-    setChk('lora_enabled',d.lora_enabled);set('webhook_url',d.webhook_url);
+    setChk('lora_enabled',d.lora_enabled);set('lm_base_url',d.lm_base_url);set('webhook_url',d.webhook_url);
   }catch(e){show('err','Failed to load: '+e.message)}
 }
 function set(id,v){const e=document.getElementById(id);if(e)e.value=v??''}
@@ -404,7 +603,7 @@ async function save(){
     retry_attempts:parseInt(get('retry_attempts'))||3,retry_delay_seconds:parseInt(get('retry_delay_seconds'))||60,
     allow_nsfw:getChk('allow_nsfw'),separate_folder:getChk('separate_folder'),
     save_json:getChk('save_json'),log_level:get('log_level'),
-    lora_enabled:getChk('lora_enabled'),webhook_url:get('webhook_url')};
+    lora_enabled:getChk('lora_enabled'),lm_base_url:get('lm_base_url'),webhook_url:get('webhook_url')};
   try{
     const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await r.json();

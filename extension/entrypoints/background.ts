@@ -22,6 +22,10 @@ export default defineBackground({
         handleHealthCheck(message.port || DEFAULT_PORT, sendResponse)
         return true
       }
+      if (message.type === 'CHECK_DOWNLOADED') {
+        handleCheckDownloaded(message.data, sendResponse)
+        return true
+      }
     })
 
     schedulePoll()
@@ -96,6 +100,19 @@ async function handleHealthCheck(port: number, sendResponse: (r: any) => void) {
     sendResponse(data)
   } catch {
     sendResponse({ status: 'error', error: 'Connection refused' })
+  }
+}
+
+async function handleCheckDownloaded(data: any, sendResponse: (r: any) => void) {
+  try {
+    const port = await getServerPort()
+    const params = new URLSearchParams({ name: data.name || '', type: data.type || 'LORA' })
+    if (data.modelId) params.set('modelId', data.modelId)
+    const res = await fetch(`http://127.0.0.1:${port}/api/check-downloaded?${params}`)
+    const result = await res.json()
+    sendResponse(result)
+  } catch {
+    sendResponse({ downloaded: false })
   }
 }
 

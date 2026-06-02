@@ -113,3 +113,14 @@ section { display:flex; flex-direction:column; gap:6px; }
 .empty-state { font-size:11px; color:#6b7280; text-align:center; padding:8px; }
 
 footer { text-align:center; font-size:11px; color:#6b7280; padding-top:8px; border-top:1px solid #333; }
+
+.help-panel {
+  display:none; background:#16213e; border:1px solid #2a1e3e; border-radius:8px;
+  padding:12px; margin-bottom:10px;
+}
+.help-panel.open { display:block; }
+.help-content { font-size:12px; color:#c0c0c0; line-height:1.6; }
+.help-content hr { border:none; border-top:1px solid #2a1e3e; margin:8px 0; }
+.help-content code { background:#1e2d4a; padding:1px 4px; border-radius:3px; font-size:11px; }
+.help-content ol, .help-content ul { padding-left:18px; margin:4px 0; }
+.help-content li { margin:2px 0; }
