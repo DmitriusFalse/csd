@@ -46,11 +46,9 @@ Load from `extension/.output/chrome-mv3/` into Chrome:
 
 ### Screenshots
 
-| Popup (EN) | Popup (RU) |
+| Popup | Settings |
 |---|---|
-| ![Popup EN](screenshots/extension_en.png) | ![Popup RU](screenshots/extension__ru.png) |
-| **Settings (EN)** | **Settings (RU)** |
-| ![Settings EN](screenshots/extension__settings_en.png) | ![Settings RU](screenshots/extension__settings_ru.png) |
+| ![Popup EN](screenshots/extension_en.png) | ![Settings EN](screenshots/extension__settings_en.png) |
 
 ### i18n / Localization
 
@@ -113,6 +111,12 @@ npm run build
 1. Укажите API-ключ Civitai (через popup расширения или в `config.yaml`)
 2. Укажите корневой путь для сохранения моделей
 3. Откройте страницу модели на civitai.com — появится кнопка «Скачать через CSD»
+
+### Скриншоты
+
+| Попап | Настройки |
+|---|---|
+| ![Popup RU](screenshots/extension__ru.png) | ![Settings RU](screenshots/extension__settings_ru.png) |
 
 ### Локализация (i18n)
 
