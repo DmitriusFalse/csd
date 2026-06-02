@@ -51,6 +51,13 @@ The extension and server tray support English and Russian. Language is auto-dete
 - **Extension popup**: click `EN` / `RU` in the header
 - **Server tray**: right-click → Language → choose English / Russian / Auto
 
+### Donate
+
+Support the project:
+
+- [Boosty](https://boosty.to/sir.geronis/donate)
+- [Patreon](https://www.patreon.com/16134050/join)
+
 ### Tech Stack
 
 - **Go**: Fiber, zap, grab, energye/systray
@@ -105,6 +112,13 @@ npm run build
 
 - **Попап расширения**: нажмите `EN` / `RU` в заголовке
 - **Трей сервера**: правый клик → Language → выберите English / Russian / Auto
+
+### Поддержать проект
+
+❤️ Поддержать проект:
+
+- [Boosty](https://boosty.to/sir.geronis/donate)
+- [Patreon](https://www.patreon.com/16134050/join)
 
 ### Стек технологий
 
