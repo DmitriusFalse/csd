@@ -2,6 +2,12 @@ import { browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/sandbox'
 
 const DEFAULT_PORT = 8765
+const POLL_INTERVAL = 5000
+const ANIM_INTERVAL = 1000
+
+let animTimer: ReturnType<typeof setInterval> | null = null
+let animFrame = false
+let prevActive = 0
 
 export default defineBackground({
   main() {
@@ -10,19 +16,61 @@ export default defineBackground({
         handleDownload(message.data, sendResponse)
         return true
       }
-
       if (message.type === 'DOWNLOAD_QUEUED') {
         handleQueuedDownload(message.data, sendResponse)
         return true
       }
-
       if (message.type === 'CHECK_HEALTH') {
         handleHealthCheck(message.port || DEFAULT_PORT, sendResponse)
         return true
       }
     })
+
+    pollHealth()
+    setInterval(pollHealth, POLL_INTERVAL)
   },
 })
+
+async function pollHealth() {
+  const port = await getServerPort()
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/health`)
+    const data = await res.json()
+    const active = (data.active || 0) + (data.queued || 0)
+
+    if (active > 0) {
+      if (prevActive === 0) startAnim()
+    } else {
+      if (prevActive > 0) stopAnim('default')
+    }
+    prevActive = active
+  } catch {
+    if (prevActive > 0) stopAnim('err')
+    else setIcon('err')
+    prevActive = -1
+  }
+}
+
+function startAnim() {
+  stopAnim(null)
+  animFrame = false
+  animTimer = setInterval(() => {
+    animFrame = !animFrame
+    setIcon(animFrame ? '01' : 'default')
+  }, ANIM_INTERVAL)
+}
+
+function stopAnim(fallback: string | null) {
+  if (animTimer !== null) {
+    clearInterval(animTimer)
+    animTimer = null
+  }
+  if (fallback) setIcon(fallback)
+}
+
+function setIcon(name: string) {
+  browser.action.setIcon({ path: { '128': `icons/${name}.png` } }).catch(() => {})
+}
 
 async function handleDownload(data: any, sendResponse: (r: any) => void) {
   try {

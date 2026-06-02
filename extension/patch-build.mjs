@@ -15,9 +15,14 @@ manifest.host_permissions = [
   '*://civitai.red/*',
   'http://127.0.0.1/*',
 ]
+manifest.icons = { '128': 'icons/default.png' }
+manifest.action = {
+  ...manifest.action,
+  default_icon: { '128': 'icons/default.png' },
+}
 
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
-console.log('[patch] manifest.json updated with permissions')
+console.log('[patch] manifest.json updated with permissions, icons, action')
 
 // Patch popup.html - remove crossorigin from script and link tags
 const popupPath = join(outDir, 'popup.html')
