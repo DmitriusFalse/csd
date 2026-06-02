@@ -75,6 +75,7 @@ section { display:flex; flex-direction:column; gap:6px; }
 .cfg-actions { display:flex; align-items:center; gap:8px; margin-top:4px; }
 .cfg-webhook-row { display:flex; align-items:flex-end; gap:8px; margin-bottom:8px; }
 .cfg-webhook-port { flex:1; margin-bottom:0 !important; }
+.cfg-lm-checks { display:flex; align-items:center; gap:8px; flex-shrink:0; }
 .cfg-port-row { display:flex; align-items:center; gap:6px; }
 .cfg-port-row input { flex:1; }
 .wh-dot {

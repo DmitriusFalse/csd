@@ -36,6 +36,7 @@ type LoraManager struct {
 	BaseURL       string `yaml:"base_url"`
 	WebhookURL    string `yaml:"webhook_url"`
 	WebhookMethod string `yaml:"webhook_method"`
+	UseLmPath     bool   `yaml:"use_lm_path"`
 }
 
 type MetadataConfig struct {

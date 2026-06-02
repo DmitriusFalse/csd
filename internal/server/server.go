@@ -146,6 +146,7 @@ func (s *Server) setupRoutes() {
 			"log_level":          cfg.Logging.Level,
 		"lora_enabled":       cfg.LoraMgr.Enabled,
 		"lm_base_url":        cfg.LoraMgr.BaseURL,
+		"use_lm_path":        cfg.LoraMgr.UseLmPath,
 		"webhook_url":        cfg.LoraMgr.WebhookURL,
 		})
 	})
@@ -202,6 +203,11 @@ func (s *Server) setupRoutes() {
 		if v, ok := updates["lora_enabled"]; ok {
 			if b, ok := v.(bool); ok {
 				cfg.LoraMgr.Enabled = b
+			}
+		}
+		if v, ok := updates["use_lm_path"]; ok {
+			if b, ok := v.(bool); ok {
+				cfg.LoraMgr.UseLmPath = b
 			}
 		}
 		if v, ok := updates["lm_base_url"]; ok {

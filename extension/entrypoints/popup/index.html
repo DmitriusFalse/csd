@@ -74,6 +74,19 @@
         <label>Путь сохранения моделей</label>
         <input id="cfg-root-path" placeholder="D:/AI/Models">
       </div>
+      <div class="cfg-webhook-row">
+        <div class="cfg-group cfg-webhook-port">
+          <label>Lora Manager URL</label>
+          <div class="cfg-port-row">
+            <input id="cfg-lm-url" placeholder="http://127.0.0.1:8188">
+            <span id="cfg-webhook-status" class="wh-dot" title="Проверить подключение"></span>
+          </div>
+        </div>
+        <div class="cfg-lm-checks">
+          <div class="cfg-check"><input type="checkbox" id="cfg-lm-enabled"><label for="cfg-lm-enabled">Вкл</label></div>
+          <div class="cfg-check"><input type="checkbox" id="cfg-use-lm-path"><label for="cfg-use-lm-path">Путь из LM</label></div>
+        </div>
+      </div>
       <div class="cfg-row">
         <div class="cfg-group">
           <label>Одновременных загрузок</label>
@@ -95,16 +108,6 @@
           <option value="warn">warn</option>
           <option value="error">error</option>
         </select>
-      </div>
-      <div class="cfg-webhook-row">
-        <div class="cfg-group cfg-webhook-port">
-          <label>Lora Manager URL</label>
-          <div class="cfg-port-row">
-            <input id="cfg-lm-url" placeholder="http://127.0.0.1:8188">
-            <span id="cfg-webhook-status" class="wh-dot" title="Проверить подключение"></span>
-          </div>
-        </div>
-        <div class="cfg-check"><input type="checkbox" id="cfg-lora-enabled"><label for="cfg-lora-enabled">Вкл</label></div>
       </div>
       <button id="open-logs" class="btn cfg-log-btn">📄 Открыть папку с логами</button>
       <div class="cfg-actions">

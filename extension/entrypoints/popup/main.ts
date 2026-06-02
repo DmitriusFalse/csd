@@ -173,7 +173,8 @@ async function loadConfig() {
     setChecked('cfg-save-json', cfg.save_json)
     setValue('cfg-log-level', cfg.log_level)
     setValue('cfg-lm-url', cfg.lm_base_url || 'http://127.0.0.1:8188')
-    setChecked('cfg-lora-enabled', cfg.lora_enabled)
+    setChecked('cfg-lm-enabled', cfg.lora_enabled)
+    setChecked('cfg-use-lm-path', cfg.use_lm_path)
     const whPort = cfg.webhook_url ? extractPort(cfg.webhook_url) : ''
     checkWebhook(whPort)
     if (statusEl) { statusEl.textContent = ''; statusEl.className = 'cfg-status' }
@@ -226,7 +227,8 @@ async function saveConfig() {
     separate_folder: getChecked('cfg-sep-folder'),
     save_json: getChecked('cfg-save-json'),
     log_level: getValue('cfg-log-level'),
-    lora_enabled: getChecked('cfg-lora-enabled'),
+    lora_enabled: getChecked('cfg-lm-enabled'),
+    use_lm_path: getChecked('cfg-use-lm-path'),
     lm_base_url: lmBaseURL,
     webhook_url: buildWebhookUrl(whPort),
   }

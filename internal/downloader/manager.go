@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,6 +64,47 @@ func (m *Manager) notifyUpdate() {
 	if m.onUpdate != nil {
 		m.onUpdate(m.active, len(m.queue))
 	}
+}
+
+func civitaiTypeToLmType(modelType string) string {
+	t := strings.ToLower(modelType)
+	switch t {
+	case "checkpoint", "checkpoints", "ckpt":
+		return "checkpoints"
+	case "lora", "loras":
+		return "loras"
+	case "textualinversion", "textual inversion", "embedding", "embeddings":
+		return "embeddings"
+	case "hypernetwork", "hypernetworks":
+		return "hypernetworks"
+	default:
+		return ""
+	}
+}
+
+func resolveLmRootPath(baseURL, modelType string) (string, error) {
+	lmType := civitaiTypeToLmType(modelType)
+	if lmType == "" || baseURL == "" {
+		return "", fmt.Errorf("unsupported type or empty base url")
+	}
+	apiURL := fmt.Sprintf("%s/api/lm/%s/roots", strings.TrimRight(baseURL, "/"), lmType)
+	resp, err := http.Get(apiURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("lm returned %d", resp.StatusCode)
+	}
+	var roots []string
+	if err := json.Unmarshal(body, &roots); err != nil {
+		return "", err
+	}
+	if len(roots) == 0 {
+		return "", fmt.Errorf("no roots for type %s", lmType)
+	}
+	return roots[0], nil
 }
 
 func (m *Manager) AddTask(req models.DownloadRequest) (*models.DownloadTask, error) {
@@ -132,7 +176,18 @@ func (m *Manager) AddTask(req models.DownloadRequest) (*models.DownloadTask, err
 	task.ModelType = api.ParseModelType(modelType)
 	task.BaseModel = baseModel
 
-	savePath := config.GetSavePath(m.cfg.RootPath, task.ModelType, task.BaseModel, false, m.cfg.NSFW.FolderSuffix)
+	root := m.cfg.RootPath
+	if req.SavePath != "" {
+		root = req.SavePath
+	} else if m.cfg.LoraMgr.UseLmPath && m.cfg.LoraMgr.BaseURL != "" && modelType != "" {
+		if lmPath, err := resolveLmRootPath(m.cfg.LoraMgr.BaseURL, modelType); err == nil && lmPath != "" {
+			root = lmPath
+			logger.Log.Debug("using LM root path", zap.String("path", lmPath))
+		} else {
+			logger.Log.Debug("LM root path failed, using config", zap.Error(err))
+		}
+	}
+	savePath := config.GetSavePath(root, task.ModelType, task.BaseModel, false, m.cfg.NSFW.FolderSuffix)
 	if task.FileName == "" {
 		task.FileName = fmt.Sprintf("model_%d.safetensors", task.ModelVersionID)
 	}

@@ -35,6 +35,7 @@ type DownloadRequest struct {
 	APIKey         string `json:"apiKey,omitempty"`
 	Priority       int    `json:"priority,omitempty"`
 	PreviewImage   string `json:"previewImage,omitempty"`
+	SavePath       string `json:"savePath,omitempty"`
 }
 
 type DownloadTask struct {
