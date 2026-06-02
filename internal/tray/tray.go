@@ -124,17 +124,17 @@ func onReady() {
 
 	systray.AddSeparator()
 
-	mi.donate = systray.AddMenuItem(i18n.Donate.Get(lang), "Donate")
-	mi.boosty = mi.donate.AddSubMenuItem("Boosty", "Donate via Boosty")
-	mi.patreon = mi.donate.AddSubMenuItem("Patreon", "Donate via Patreon")
-
-	systray.AddSeparator()
-
 	mi.langItem = systray.AddMenuItem(i18n.Language.Get(lang), "Language")
 	mi.langAuto = mi.langItem.AddSubMenuItem(i18n.TAuto.Get(lang), "Auto (system)")
 	mi.langEn = mi.langItem.AddSubMenuItem(i18n.TEn.Get(lang), "English")
 	mi.langRu = mi.langItem.AddSubMenuItem(i18n.TRu.Get(lang), "Russian")
 	updateLangChecks()
+
+	systray.AddSeparator()
+
+	mi.donate = systray.AddMenuItem(i18n.Donate.Get(lang), "Donate")
+	mi.boosty = mi.donate.AddSubMenuItem("Boosty", "Donate via Boosty")
+	mi.patreon = mi.donate.AddSubMenuItem("Patreon", "Donate via Patreon")
 
 	systray.AddSeparator()
 
