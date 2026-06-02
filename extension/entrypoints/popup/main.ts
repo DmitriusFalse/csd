@@ -1,3 +1,5 @@
+import { loadLang, saveLang, setLang, getLang, translateAll, t, type Lang } from './i18n.js'
+
 const DEFAULT_PORT = 8765
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let configOpen = false
@@ -9,29 +11,10 @@ function $<T = HTMLElement>(id: string): T | null {
 
 async function loadSettings() {
   const { serverPort, apiKey } = await chrome.storage.local.get(['serverPort', 'apiKey'])
-  const portEl = document.getElementById('config-port') as HTMLInputElement
+  const portEl = document.getElementById('server-port') as HTMLInputElement
   if (portEl) portEl.value = String(serverPort || DEFAULT_PORT)
-  const keyEl = document.getElementById('config-key') as HTMLInputElement
+  const keyEl = document.getElementById('api-key') as HTMLInputElement
   if (keyEl) keyEl.value = apiKey || ''
-}
-
-async function saveSettings() {
-  const el = document.getElementById('config-port') as HTMLInputElement
-  if (el) await chrome.storage.local.set({ serverPort: parseInt(el.value) || DEFAULT_PORT })
-  const el2 = document.getElementById('config-key') as HTMLInputElement
-  if (el2) await chrome.storage.local.set({ apiKey: el2.value })
-  closeConfig()
-  refreshTasks()
-}
-
-async function savePort() {
-  const el = $<HTMLInputElement>('server-port')
-  if (el) await chrome.storage.local.set({ serverPort: parseInt(el.value) || DEFAULT_PORT })
-}
-
-async function saveKey() {
-  const el = $<HTMLInputElement>('api-key')
-  if (el) await chrome.storage.local.set({ apiKey: el.value })
 }
 
 function formatBytes(bytes: number): string {
@@ -83,13 +66,13 @@ function createTaskCard(task: any): HTMLDivElement {
     status.style.color = '#667eea'
     info.appendChild(status)
   } else if (task.status === 'queued' || task.status === 'paused') {
-    meta.textContent = task.status === 'queued' ? 'В очереди' : 'На паузе'
+    meta.textContent = task.status === 'queued' ? t('task-queued') : t('task-paused')
     info.append(name, meta)
   } else if (task.status === 'completed') {
-    meta.textContent = 'Готово'
+    meta.textContent = t('task-completed')
     info.append(name, meta)
   } else if (task.status === 'failed') {
-    meta.textContent = task.error || 'Ошибка'
+    meta.textContent = task.error || t('task-failed')
     info.append(name, meta)
   }
 
@@ -102,7 +85,7 @@ function createTaskCard(task: any): HTMLDivElement {
     const cancelBtn = document.createElement('button')
     cancelBtn.className = 'btn-icon'
     cancelBtn.textContent = '✕'
-    cancelBtn.title = 'Cancel'
+    cancelBtn.title = t('task-cancel')
     cancelBtn.onclick = async () => {
       try {
         const port = parseInt($<HTMLInputElement>('server-port')?.value || String(DEFAULT_PORT))
@@ -161,7 +144,7 @@ async function loadConfig() {
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/config`, { signal: AbortSignal.timeout(3000) })
     if (!res.ok) {
-      if (statusEl) { statusEl.textContent = '❌ Сервер вернул ' + res.status; statusEl.className = 'cfg-status err' }
+      if (statusEl) { statusEl.textContent = '❌ Server returned ' + res.status; statusEl.className = 'cfg-status err' }
       return
     }
     const cfg = await res.json()
@@ -243,7 +226,7 @@ async function saveConfig() {
     })
     const d = await res.json()
     if (d.status === 'saved') {
-      if (statusEl) { statusEl.textContent = '✅ Сохранено'; statusEl.className = 'cfg-status ok' }
+      if (statusEl) { statusEl.textContent = t('config-saved'); statusEl.className = 'cfg-status ok' }
       setTimeout(() => toggleConfig(), 600)
     } else {
       if (statusEl) { statusEl.textContent = '❌ ' + (d.error || ''); statusEl.className = 'cfg-status err' }
@@ -295,9 +278,9 @@ function setStatus(state: 'connected' | 'disconnected' | 'checking') {
   const dot = $<HTMLButtonElement>('status-indicator')
   if (!dot) return
   dot.className = 'status-dot ' + state
-  if (state === 'connected') dot.title = 'Подключено'
-  else if (state === 'disconnected') dot.title = 'Нет подключения — нажмите'
-  else dot.title = 'Проверка...'
+  if (state === 'connected') dot.title = t('status-connected')
+  else if (state === 'disconnected') dot.title = t('status-disconnected')
+  else dot.title = t('status-checking')
 }
 
 async function checkConnection() {
@@ -338,7 +321,32 @@ function stopAutoRefresh() {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
 }
 
+async function setAppLang(l: Lang) {
+  setLang(l)
+  await saveLang(l)
+  translateAll()
+
+  const enBtn = $('lang-en')
+  const ruBtn = $('lang-ru')
+  if (enBtn) enBtn.classList.toggle('active', l === 'en')
+  if (ruBtn) ruBtn.classList.toggle('active', l === 'ru')
+
+  setStatusFromCurrent()
+  await fetchTasks()
+}
+
+function setStatusFromCurrent() {
+  const dot = $<HTMLButtonElement>('status-indicator')
+  if (!dot) return
+  if (dot.classList.contains('connected')) setStatus('connected')
+  else if (dot.classList.contains('disconnected')) setStatus('disconnected')
+  else setStatus('checking')
+}
+
 async function init() {
+  const savedLang = await loadLang()
+  await setAppLang(savedLang)
+
   await loadSettings()
 
   const statusBtn = $('status-indicator')
@@ -375,7 +383,22 @@ async function init() {
   const dPatreon = $('donate-footer-patreon')
   if (dPatreon) dPatreon.onclick = (e) => { e.preventDefault(); chrome.tabs.create({ url: 'https://www.patreon.com/16134050/join' }) }
 
+  const langEnBtn = $('lang-en')
+  const langRuBtn = $('lang-ru')
+  if (langEnBtn) langEnBtn.onclick = () => setAppLang('en')
+  if (langRuBtn) langRuBtn.onclick = () => setAppLang('ru')
+
   await checkConnection()
+}
+
+async function savePort() {
+  const el = $<HTMLInputElement>('server-port')
+  if (el) await chrome.storage.local.set({ serverPort: parseInt(el.value) || DEFAULT_PORT })
+}
+
+async function saveKey() {
+  const el = $<HTMLInputElement>('api-key')
+  if (el) await chrome.storage.local.set({ apiKey: el.value })
 }
 
 if (document.readyState === 'loading') {

@@ -1,62 +1,66 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Civitai Smart Downloader</title>
+  <title data-i18n="title">Civitai Smart Downloader</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="app">
     <header>
-      <h1>Civitai Smart Downloader</h1>
+      <h1 data-i18n="title">Civitai Smart Downloader</h1>
       <div class="header-actions">
-        <button id="status-indicator" class="status-dot" title="Проверить подключение"></button>
-        <button id="toggle-config" class="icon-btn" title="Настройки">
+        <div class="lang-switcher">
+          <button id="lang-en" class="lang-btn" data-lang="en">EN</button>
+          <button id="lang-ru" class="lang-btn" data-lang="ru">RU</button>
+        </div>
+        <button id="status-indicator" class="status-dot" data-i18n-title="status-disconnected" title="No connection — click"></button>
+        <button id="toggle-config" class="icon-btn" data-i18n-title="btn-settings" title="Settings">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
             <circle cx="12" cy="12" r="3"/>
           </svg>
         </button>
-        <button id="toggle-help" class="icon-btn" title="Помощь">?</button>
+        <button id="toggle-help" class="icon-btn" data-i18n-title="btn-help" title="Help">?</button>
       </div>
     </header>
 
     <section id="help-section" class="help-panel">
-      <h2>❓ Помощь</h2>
+      <h2 data-i18n="help-header">❓ Помощь</h2>
       <div class="help-content">
-        <p><b>Civitai Smart Downloader</b></p>
-        <p>Расширение для скачивания моделей с Civitai через локальный сервер.</p>
+        <p><b data-i18n="help-header">❓ Помощь</b></p>
+        <p data-i18n="help-desc">Расширение для скачивания моделей с Civitai через локальный сервер.</p>
         <hr>
-        <p><b>Как использовать:</b></p>
+        <p><b data-i18n="help-howto">Как использовать:</b></p>
         <ol>
-          <li>Запусти <code>csd-bridge.exe</code> (сервер)</li>
-          <li>Нажми на зелёную точку 🟢 в попапе — проверить подключение</li>
-          <li>Зайди на civitai.com или civitai.red</li>
-          <li>Нажми фиолетовую кнопку "Download via CSD" на странице модели</li>
+          <li data-i18n-html="true" data-i18n="help-step1">Запусти <code>csd-bridge.exe</code> (сервер)</li>
+          <li data-i18n-html="true" data-i18n="help-step2">Нажми на зелёную точку 🟢 в попапе — проверить подключение</li>
+          <li data-i18n="help-step3">Зайди на civitai.com или civitai.red</li>
+          <li data-i18n="help-step4">Нажми фиолетовую кнопку "Download via CSD" на странице модели</li>
         </ol>
         <hr>
-        <p><b>Настройки ⚙:</b></p>
+        <p><b data-i18n="help-settings">Настройки ⚙:</b></p>
         <ul>
-          <li><b>Порт сервера</b> — должен совпадать с портом в <code>config.yaml</code></li>
-          <li><b>API-ключ</b> — опционально, можно указать в <code>config.yaml</code></li>
-          <li><b>Путь из LM</b> — автоматически определяет корень для каждого типа модели через Lora Manager</li>
+          <li data-i18n-html="true" data-i18n="help-port"><b>Порт сервера</b> — должен совпадать с портом в <code>config.yaml</code></li>
+          <li data-i18n-html="true" data-i18n="help-apikey"><b>API-ключ</b> — опционально, можно указать в <code>config.yaml</code></li>
+          <li data-i18n-html="true" data-i18n="help-lm-path"><b>Путь из LM</b> — автоматически определяет корень для каждого типа модели через Lora Manager</li>
         </ul>
         <hr>
-        <p><b>Lora Manager:</b></p>
+        <p><b data-i18n="help-lm-header">Lora Manager:</b></p>
         <ul>
-          <li>Укажи URL (по умолч. <code>http://127.0.0.1:8188</code>)</li>
-          <li>Галка <b>«Путь из LM»</b> — путь для LoRA/LyCORIS/Checkpoints берётся из LM</li>
-          <li>Если LM не отвечает или тип не поддерживается — используется путь по умолчанию</li>
+          <li data-i18n-html="true" data-i18n="help-lm-url">Укажи URL (по умолч. <code>http://127.0.0.1:8188</code>)</li>
+          <li data-i18n-html="true" data-i18n="help-lm-checkbox">Галка <b>«Путь из LM»</b> — путь для LoRA/LyCORIS/Checkpoints берётся из LM</li>
+          <li data-i18n="help-lm-fallback">Если LM не отвечает или тип не поддерживается — используется путь по умолчанию</li>
         </ul>
         <hr>
-        <p><b>Где искать:</b></p>
+        <p><b data-i18n="help-logs">Где искать:</b></p>
         <ul>
-          <li>Логи сервера: кнопка 📄 в настройках</li>
-          <li>Config: открой <code>config.yaml</code> рядом с <code>csd-bridge.exe</code></li>
+          <li data-i18n="help-logs">Логи сервера: кнопка 📄 в настройках</li>
+          <li data-i18n="help-config">Config: открой <code>config.yaml</code> рядом с <code>csd-bridge.exe</code></li>
         </ul>
         <hr>
-        <p><b>❤ Поддержать проект:</b></p>
+        <p><b data-i18n="help-donate">❤ Поддержать проект:</b></p>
         <ul>
           <li><a href="#" id="donate-boosty" style="color:#667eea;text-decoration:none;">Boosty</a></li>
           <li><a href="#" id="donate-patreon" style="color:#667eea;text-decoration:none;">Patreon</a></li>
@@ -65,51 +69,51 @@
     </section>
 
     <section id="config-section" class="config-panel">
-      <h2>⚙ Настройки</h2>
+      <h2 data-i18n="config-header">⚙ Настройки</h2>
 
       <div class="cfg-group">
-        <label>Порт сервера</label>
+        <label data-i18n="config-port">Порт сервера</label>
         <input type="number" id="server-port" value="8765" min="1024" max="65535">
       </div>
       <div class="cfg-group">
-        <label>API-ключ Civitai (опционально)</label>
+        <label data-i18n="config-apikey">API-ключ Civitai (опционально)</label>
         <div class="cfg-key-row">
-          <input type="password" id="api-key" placeholder="Оставь пустым, если указан в config.yaml">
-          <button id="toggle-key" class="btn-icon" title="Показать/скрыть">👁</button>
+          <input type="password" id="api-key" data-i18n-placeholder="config-apikey-placeholder" placeholder="Оставь пустым, если указан в config.yaml">
+          <button id="toggle-key" class="btn-icon" data-i18n-title="config-showhide" title="Показать/скрыть">👁</button>
         </div>
       </div>
       <div class="cfg-group">
-        <label title="Путь по умолчанию. Если включена 'Путь из LM' — корень берётся из Lora Manager для каждого типа модели">Путь сохранения моделей</label>
-        <input id="cfg-root-path" placeholder="D:/AI/Models">
+        <label data-i18n="config-savepath" data-i18n-title="config-savepath-title" title="Путь по умолчанию. Если включена 'Путь из LM' — корень берётся из Lora Manager для каждого типа модели">Путь сохранения моделей</label>
+        <input id="cfg-root-path" data-i18n-placeholder="config-savepath-placeholder" placeholder="D:/AI/Models">
       </div>
       <div class="cfg-webhook-row">
         <div class="cfg-group cfg-webhook-port">
-          <label>Lora Manager URL</label>
+          <label data-i18n="config-lm-url">Lora Manager URL</label>
           <div class="cfg-port-row">
-            <input id="cfg-lm-url" placeholder="http://127.0.0.1:8188">
-            <span id="cfg-webhook-status" class="wh-dot" title="Проверить подключение"></span>
+            <input id="cfg-lm-url" data-i18n-placeholder="config-lm-url-placeholder" placeholder="http://127.0.0.1:8188">
+            <span id="cfg-webhook-status" class="wh-dot" data-i18n-title="config-lm-check" title="Проверить подключение"></span>
           </div>
         </div>
         <div class="cfg-lm-checks">
-          <div class="cfg-check"><input type="checkbox" id="cfg-lm-enabled"><label for="cfg-lm-enabled">Вкл</label></div>
-          <div class="cfg-check"><input type="checkbox" id="cfg-use-lm-path"><label for="cfg-use-lm-path">Путь из LM</label></div>
+          <div class="cfg-check"><input type="checkbox" id="cfg-lm-enabled"><label for="cfg-lm-enabled" data-i18n="config-lm-enabled">Вкл</label></div>
+          <div class="cfg-check"><input type="checkbox" id="cfg-use-lm-path"><label for="cfg-use-lm-path" data-i18n="config-lm-path">Путь из LM</label></div>
         </div>
       </div>
       <div class="cfg-row">
         <div class="cfg-group">
-          <label>Одновременных загрузок</label>
+          <label data-i18n="config-max-concurrent">Одновременных загрузок</label>
           <input type="number" id="cfg-max-concurrent" min="1" max="10">
         </div>
         <div class="cfg-group">
-          <label>Попыток при ошибке</label>
+          <label data-i18n="config-retry">Попыток при ошибке</label>
           <input type="number" id="cfg-retry-attempts" min="1" max="10">
         </div>
       </div>
-      <div class="cfg-check"><input type="checkbox" id="cfg-allow-nsfw"><label for="cfg-allow-nsfw">Разрешить NSFW</label></div>
-      <div class="cfg-check"><input type="checkbox" id="cfg-sep-folder"><label for="cfg-sep-folder">Отдельная папка для NSFW</label></div>
-      <div class="cfg-check"><input type="checkbox" id="cfg-save-json"><label for="cfg-save-json">Сохранять JSON с метаданными</label></div>
+      <div class="cfg-check"><input type="checkbox" id="cfg-allow-nsfw"><label for="cfg-allow-nsfw" data-i18n="config-nsfw">Разрешить NSFW</label></div>
+      <div class="cfg-check"><input type="checkbox" id="cfg-sep-folder"><label for="cfg-sep-folder" data-i18n="config-sep-folder">Отдельная папка для NSFW</label></div>
+      <div class="cfg-check"><input type="checkbox" id="cfg-save-json"><label for="cfg-save-json" data-i18n="config-save-json">Сохранять JSON с метаданными</label></div>
       <div class="cfg-group">
-        <label>Уровень логирования</label>
+        <label data-i18n="config-log-level">Уровень логирования</label>
         <select id="cfg-log-level">
           <option value="debug">debug</option>
           <option value="info">info</option>
@@ -117,32 +121,32 @@
           <option value="error">error</option>
         </select>
       </div>
-      <button id="open-logs" class="btn cfg-log-btn">📄 Открыть папку с логами</button>
+      <button id="open-logs" class="btn cfg-log-btn" data-i18n="config-open-logs">📄 Открыть папку с логами</button>
       <div class="cfg-actions">
-        <button id="cfg-save" class="btn">💾 Сохранить</button>
+        <button id="cfg-save" class="btn" data-i18n="config-save-btn">💾 Сохранить</button>
         <span id="cfg-status" class="cfg-status"></span>
       </div>
     </section>
 
     <section id="active-section">
-      <h2>⬇ Активные</h2>
+      <h2 data-i18n="section-active">⬇ Активные</h2>
       <div id="active-list"></div>
-      <p id="active-empty" class="empty-state">Нет активных загрузок</p>
+      <p id="active-empty" class="empty-state" data-i18n="section-active-empty">Нет активных загрузок</p>
     </section>
 
     <section id="queued-section">
-      <h2>⏳ Очередь</h2>
+      <h2 data-i18n="section-queued">⏳ Очередь</h2>
       <div id="queued-list"></div>
-      <p id="queued-empty" class="empty-state">Очередь пуста</p>
+      <p id="queued-empty" class="empty-state" data-i18n="section-queued-empty">Очередь пуста</p>
     </section>
 
     <section id="history-section">
-      <h2>📋 История</h2>
+      <h2 data-i18n="section-history">📋 История</h2>
       <div id="history-list"></div>
-      <p id="history-empty" class="empty-state">История пуста</p>
+      <p id="history-empty" class="empty-state" data-i18n="section-history-empty">История пуста</p>
     </section>
 
-    <footer>v8.0.20 · <a href="#" id="donate-footer-boosty" style="color:#667eea;text-decoration:none;">Boosty</a> · <a href="#" id="donate-footer-patreon" style="color:#667eea;text-decoration:none;">Patreon</a></footer>
+    <footer>v8.1.0 · <a href="#" id="donate-footer-boosty" style="color:#667eea;text-decoration:none;">Boosty</a> · <a href="#" id="donate-footer-patreon" style="color:#667eea;text-decoration:none;">Patreon</a></footer>
   </div>
 
   <script type="module" src="main.ts"></script>

@@ -21,7 +21,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const appVersion = "8.0.20"
+const appVersion = "8.1.0"
 
 func main() {
 	headless := os.Getenv("CSD_HEADLESS") == "1" || os.Getenv("CSD_HEADLESS") == "true"

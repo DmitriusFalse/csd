@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/DmitriusFalse/csd/internal/downloader"
+	"github.com/DmitriusFalse/csd/internal/i18n"
 	"github.com/DmitriusFalse/csd/internal/logger"
 	"github.com/energye/systray"
 	"go.uber.org/zap"
@@ -21,10 +22,11 @@ var iconFS embed.FS
 var (
 	defaultIcon []byte
 
-	manager   *downloader.Manager
-	rootPath  string
+	manager    *downloader.Manager
+	rootPath   string
 	appVersion string
-	onExitFn  func()
+	onExitFn   func()
+	lang       i18n.Lang
 )
 
 func Run(mgr *downloader.Manager, root, version string, onExit func()) {
@@ -32,6 +34,7 @@ func Run(mgr *downloader.Manager, root, version string, onExit func()) {
 	rootPath = root
 	appVersion = version
 	onExitFn = onExit
+	lang = i18n.DetectLang()
 
 	var err error
 	defaultIcon, err = iconFS.ReadFile("icons/default.ico")
@@ -42,95 +45,163 @@ func Run(mgr *downloader.Manager, root, version string, onExit func()) {
 	systray.Run(onReady, onExitFn)
 }
 
+func setMenuLang() {
+	systray.SetTooltip("Civitai Smart Downloader v" + appVersion)
+}
+
+type menuItems struct {
+	title, pauseAll, resumeAll, openFolder, openConfig,
+	sites, civitai, civitaiRed, autoStart,
+	donate, boosty, patreon, quit,
+	langItem, langAuto, langEn, langRu *systray.MenuItem
+}
+
+var mi menuItems
+
+func rebuildMenuText() {
+	mi.pauseAll.SetTitle(i18n.PauseAll.Get(lang))
+	mi.resumeAll.SetTitle(i18n.ResumeAll.Get(lang))
+	mi.openFolder.SetTitle(i18n.OpenFolder.Get(lang))
+	mi.openConfig.SetTitle(i18n.OpenConfig.Get(lang))
+	mi.sites.SetTitle(i18n.Sites.Get(lang))
+	mi.autoStart.SetTitle(i18n.AutoStart.Get(lang))
+	mi.donate.SetTitle(i18n.Donate.Get(lang))
+	mi.quit.SetTitle(i18n.Quit.Get(lang))
+	mi.langItem.SetTitle(i18n.Language.Get(lang))
+	mi.langAuto.SetTitle(i18n.TAuto.Get(lang))
+	mi.langEn.SetTitle(i18n.TEn.Get(lang))
+	mi.langRu.SetTitle(i18n.TRu.Get(lang))
+
+	updateLangChecks()
+}
+
+func updateLangChecks() {
+	mi.langAuto.Uncheck()
+	mi.langEn.Uncheck()
+	mi.langRu.Uncheck()
+	switch lang {
+	case i18n.LangAuto:
+		mi.langAuto.Check()
+	case i18n.LangEN:
+		mi.langEn.Check()
+	case i18n.LangRU:
+		mi.langRu.Check()
+	}
+}
+
 func onReady() {
 	systray.SetTitle("CSD")
-	systray.SetTooltip("Civitai Smart Downloader v" + appVersion)
+	setMenuLang()
 	if len(defaultIcon) > 0 {
 		systray.SetTemplateIcon(defaultIcon, defaultIcon)
 	}
 
-	titleItem := systray.AddMenuItem("Civitai Smart Downloader v"+appVersion, "Civitai Smart Downloader")
-	titleItem.Disable()
+	mi.title = systray.AddMenuItem("Civitai Smart Downloader v"+appVersion, "Civitai Smart Downloader")
+	mi.title.Disable()
 
 	systray.AddSeparator()
 
-	pauseAllItem := systray.AddMenuItem("⏸ Пауза всех", "Pause all downloads")
-	resumeAllItem := systray.AddMenuItem("▶ Возобновить все", "Resume all downloads")
+	mi.pauseAll = systray.AddMenuItem(i18n.PauseAll.Get(lang), "Pause all downloads")
+	mi.resumeAll = systray.AddMenuItem(i18n.ResumeAll.Get(lang), "Resume all downloads")
 
 	systray.AddSeparator()
 
-	openFolderItem := systray.AddMenuItem("📂 Открыть папку загрузок", "Open downloads folder")
-	configItem := systray.AddMenuItem("📄 Открыть config.yaml", "Open config file")
+	mi.openFolder = systray.AddMenuItem(i18n.OpenFolder.Get(lang), "Open downloads folder")
+	mi.openConfig = systray.AddMenuItem(i18n.OpenConfig.Get(lang), "Open config file")
 
 	systray.AddSeparator()
 
-	sitesItem := systray.AddMenuItem("🌐 Сайты", "Websites")
-	civitaiItem := sitesItem.AddSubMenuItem("civitai.com", "Open civitai.com")
-	civitaiRedItem := sitesItem.AddSubMenuItem("civitai.red", "Open civitai.red")
+	mi.sites = systray.AddMenuItem(i18n.Sites.Get(lang), "Websites")
+	mi.civitai = mi.sites.AddSubMenuItem("civitai.com", "Open civitai.com")
+	mi.civitaiRed = mi.sites.AddSubMenuItem("civitai.red", "Open civitai.red")
 
 	systray.AddSeparator()
 
-	autoStartItem := systray.AddMenuItem("🔄 Автозагрузка", "Run on Windows startup")
+	mi.autoStart = systray.AddMenuItem(i18n.AutoStart.Get(lang), "Run on Windows startup")
 	if isAutoStartEnabled() {
-		autoStartItem.Check()
+		mi.autoStart.Check()
 	}
 
 	systray.AddSeparator()
 
-	donateItem := systray.AddMenuItem("❤ Поддержать", "Donate")
-	boostyItem := donateItem.AddSubMenuItem("Boosty", "Donate via Boosty")
-	patreonItem := donateItem.AddSubMenuItem("Patreon", "Donate via Patreon")
+	mi.donate = systray.AddMenuItem(i18n.Donate.Get(lang), "Donate")
+	mi.boosty = mi.donate.AddSubMenuItem("Boosty", "Donate via Boosty")
+	mi.patreon = mi.donate.AddSubMenuItem("Patreon", "Donate via Patreon")
 
 	systray.AddSeparator()
 
-	quitItem := systray.AddMenuItem("❌ Выход", "Quit")
+	mi.langItem = systray.AddMenuItem(i18n.Language.Get(lang), "Language")
+	mi.langAuto = mi.langItem.AddSubMenuItem(i18n.TAuto.Get(lang), "Auto (system)")
+	mi.langEn = mi.langItem.AddSubMenuItem(i18n.TEn.Get(lang), "English")
+	mi.langRu = mi.langItem.AddSubMenuItem(i18n.TRu.Get(lang), "Russian")
+	updateLangChecks()
 
-	openFolderItem.Click(func() {
+	systray.AddSeparator()
+
+	mi.quit = systray.AddMenuItem(i18n.Quit.Get(lang), "Quit")
+
+	mi.openFolder.Click(func() {
 		openDir(rootPath)
 	})
 
-	configItem.Click(func() {
+	mi.openConfig.Click(func() {
 		openConfig()
 	})
 
-	civitaiItem.Click(func() {
+	mi.civitai.Click(func() {
 		openURL("https://civitai.com")
 	})
 
-	civitaiRedItem.Click(func() {
+	mi.civitaiRed.Click(func() {
 		openURL("https://civitai.red")
 	})
 
-	boostyItem.Click(func() {
+	mi.boosty.Click(func() {
 		openURL("https://boosty.to/sir.geronis/donate")
 	})
 
-	patreonItem.Click(func() {
+	mi.patreon.Click(func() {
 		openURL("https://www.patreon.com/16134050/join")
 	})
 
-	autoStartItem.Click(func() {
-		enabled := !autoStartItem.Checked()
+	mi.autoStart.Click(func() {
+		enabled := !mi.autoStart.Checked()
 		if err := setAutoStart(enabled); err != nil {
 			logger.Log.Error("Failed to toggle autostart", zap.Error(err))
 			return
 		}
 		if enabled {
-			autoStartItem.Check()
+			mi.autoStart.Check()
 		} else {
-			autoStartItem.Uncheck()
+			mi.autoStart.Uncheck()
 		}
 	})
 
-	pauseAllItem.Click(func() {
+	mi.pauseAll.Click(func() {
 		manager.PauseAll()
 	})
 
-	resumeAllItem.Click(func() {
+	mi.resumeAll.Click(func() {
 		manager.ResumeAll()
 	})
 
-	quitItem.Click(func() {
+	mi.langAuto.Click(func() {
+		lang = i18n.LangAuto
+		lang = i18n.DetectLang()
+		rebuildMenuText()
+	})
+
+	mi.langEn.Click(func() {
+		lang = i18n.LangEN
+		rebuildMenuText()
+	})
+
+	mi.langRu.Click(func() {
+		lang = i18n.LangRU
+		rebuildMenuText()
+	})
+
+	mi.quit.Click(func() {
 		if manager.GetActiveCount() > 0 {
 			logger.Log.Info("Quit with active downloads")
 		}
@@ -146,7 +217,7 @@ func onReady() {
 
 		tooltip := "Civitai Smart Downloader v" + appVersion
 		if activeCount > 0 {
-			tooltip += fmt.Sprintf(" | %d active, %d queued", activeCount, queueLen)
+			tooltip += " | " + fmt.Sprintf(i18n.StatusActive.Get(lang), activeCount, queueLen)
 		}
 		systray.SetTooltip(tooltip)
 

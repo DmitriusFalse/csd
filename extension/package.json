@@ -1,7 +1,7 @@
 {
   "name": "civitai-smart-downloader",
   "description": "Browser extension for Civitai Smart Downloader",
-  "version": "8.0.20",
+  "version": "8.1.0",
   "private": true,
   "type": "module",
   "scripts": {
