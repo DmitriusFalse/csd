@@ -10,7 +10,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/DmitriusFalse/csd/internal/api"
 	"github.com/DmitriusFalse/csd/internal/config"
 	"github.com/DmitriusFalse/csd/internal/downloader"
 	"github.com/DmitriusFalse/csd/internal/logger"
@@ -28,9 +30,10 @@ type Server struct {
 	host       string
 	configPath string
 	logPath    string
+	civitai    api.ModelInfoFetcher
 }
 
-func New(host string, port int, manager *downloader.Manager, configPath, logPath string) *Server {
+func New(host string, port int, manager *downloader.Manager, configPath, logPath string, civitai api.ModelInfoFetcher) *Server {
 	s := &Server{
 		app: fiber.New(fiber.Config{
 			DisableStartupMessage: true,
@@ -41,6 +44,7 @@ func New(host string, port int, manager *downloader.Manager, configPath, logPath
 		host:       host,
 		configPath: configPath,
 		logPath:    logPath,
+		civitai:    civitai,
 	}
 
 	s.app.Use(cors.New(cors.Config{
@@ -221,6 +225,7 @@ func (s *Server) setupRoutes() {
 
 	s.app.Get("/api/check-downloaded", s.handleCheckDownloaded)
 	s.app.Get("/api/check-lm-health", s.handleCheckLMHealth)
+	s.app.Post("/api/download-by-model-id", s.handleDownloadByModelID)
 }
 
 func (s *Server) handleCheckDownloaded(c *fiber.Ctx) error {
@@ -251,6 +256,109 @@ func (s *Server) handleCheckDownloaded(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"downloaded": true, "source": "lm", "item": item})
 	}
 	return c.JSON(fiber.Map{"downloaded": false})
+}
+
+func (s *Server) handleDownloadByModelID(c *fiber.Ctx) error {
+	var req struct {
+		ModelID     int    `json:"modelId"`
+		ModelName   string `json:"modelName"`
+		PreviewImage string `json:"previewImage"`
+		ModelType   string `json:"modelType"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return jsonError(c, http.StatusBadRequest, models.NewAPIError(
+			models.ErrCodeInvalidRequest, "invalid json", 400, false,
+		))
+	}
+	if req.ModelID == 0 {
+		return jsonError(c, http.StatusBadRequest, models.NewAPIError(
+			models.ErrCodeInvalidRequest, "modelId required", 400, false,
+		))
+	}
+
+	cfg, err := config.Load(s.configPath)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Fetch model info from CivitAI to get latest version
+	apiKey := cfg.APIKey
+	apiURL := fmt.Sprintf("https://civitai.com/api/v1/models/%d", req.ModelID)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	httpReq, _ := http.NewRequest("GET", apiURL, nil)
+	httpReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	if apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return c.Status(502).JSON(fiber.Map{"error": "CivitAI request failed: " + err.Error()})
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.Status(502).JSON(fiber.Map{"error": fmt.Sprintf("CivitAI returned %d", resp.StatusCode)})
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	var modelInfo struct {
+		ID       int    `json:"id"`
+		Name     string `json:"name"`
+		Type     string `json:"type"`
+		Versions []struct {
+			ID    int    `json:"id"`
+			Name  string `json:"name"`
+			Files []struct {
+				ID       int    `json:"id"`
+				Name     string `json:"name"`
+				SizeKB   float64 `json:"sizeKB"`
+				Metadata struct {
+					Fp string `json:"fp"`
+				} `json:"metadata"`
+			} `json:"files"`
+		} `json:"modelVersions"`
+	}
+	if err := json.Unmarshal(body, &modelInfo); err != nil {
+		return c.Status(502).JSON(fiber.Map{"error": "parse failed: " + err.Error()})
+	}
+
+	if len(modelInfo.Versions) == 0 {
+		return c.Status(404).JSON(fiber.Map{"error": "no versions found"})
+	}
+
+	// Pick latest version
+	latestVer := modelInfo.Versions[0]
+	if len(latestVer.Files) == 0 {
+		return c.Status(404).JSON(fiber.Map{"error": "no files in latest version"})
+	}
+
+	firstFile := latestVer.Files[0]
+	modelName := req.ModelName
+	if modelName == "" {
+		modelName = modelInfo.Name
+	}
+
+	task, err := s.manager.AddTask(models.DownloadRequest{
+		ModelVersionID: latestVer.ID,
+		FileID:         firstFile.ID,
+		ModelName:      modelName,
+		ModelType:      modelInfo.Type,
+		FileName:       firstFile.Name,
+		FileSize:       fmt.Sprintf("%.0f KB", firstFile.SizeKB),
+		PreviewImage:   req.PreviewImage,
+	})
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"id":      task.ID,
+		"status":  task.Status,
+		"version": latestVer.ID,
+		"file":    firstFile.ID,
+	})
 }
 
 func (s *Server) handleCheckLMHealth(c *fiber.Ctx) error {

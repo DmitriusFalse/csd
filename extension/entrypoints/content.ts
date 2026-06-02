@@ -5,6 +5,7 @@ export default defineContentScript({
   runAt: 'document_idle',
   main() {
     tryInject()
+    injectCardButtons()
     observePageChanges()
   },
 })
@@ -232,6 +233,95 @@ function tryInject(): boolean {
     return true
   }
   return false
+}
+
+function injectCardButtons() {
+  const cards = document.querySelectorAll<HTMLElement>('[class*="flex flex-col items-center gap-2"], [class*="flex"][class*="flex-col"][class*="items-center"][class*="gap-2"]')
+  if (!cards.length) {
+    setTimeout(injectCardButtons, 1000)
+    return
+  }
+
+  cards.forEach((container) => {
+    if (container.querySelector('.csd-card-btn')) return
+
+    const card = container.closest('[class*="card"]') || container.closest('a[href*="/models/"]') || container.parentElement
+    if (!card) return
+
+    const link = card.querySelector<HTMLAnchorElement>('a[href*="/models/"]')
+    if (!link) return
+
+    const href = link.getAttribute('href') || ''
+    const match = href.match(/\/models\/(\d+)/)
+    if (!match) return
+    const modelId = match[1]
+
+    const modelNameEl = card.querySelector<HTMLElement>('[class*="title"]') || card.querySelector<HTMLElement>('[class*="name"]') || link
+    const modelName = modelNameEl?.textContent?.trim() || 'Model'
+
+    const typeEl = card.querySelector<HTMLElement>('[class*="badge"], [class*="tag"], [class*="type"]')
+    const modelType = typeEl?.textContent?.trim() || 'LORA'
+
+    const img = card.querySelector<HTMLImageElement>('img[src*="civitai"]') || card.querySelector<HTMLImageElement>('img')
+    const previewImage = img?.src || ''
+
+    const btn = document.createElement('button')
+    btn.className = 'csd-card-btn'
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"></path><path d="M7 11l5 5l5 -5"></path><path d="M12 4l0 12"></path></svg>`
+    btn.title = 'Download via CSD'
+    btn.style.cssText = [
+      'width:30px', 'height:30px', 'border-radius:50%', 'border:none',
+      'background:rgba(120,80,180,0.15)', 'color:rgb(160,130,200)',
+      'cursor:pointer', 'display:flex', 'align-items:center', 'justify-content:center',
+      'transition:background 0.15s', 'flex-shrink:0',
+    ].join(';')
+
+    btn.addEventListener('mouseenter', () => { btn.style.background = 'rgba(120,80,180,0.3)' })
+    btn.addEventListener('mouseleave', () => { btn.style.background = downloaded ? 'rgba(16,185,129,0.2)' : 'rgba(120,80,180,0.15)' })
+
+    let downloaded = false
+    chrome.runtime.sendMessage({
+      type: 'CHECK_DOWNLOADED',
+      data: { name: modelName, type: modelType, modelId },
+    }).then((r: any) => {
+      if (r?.downloaded) {
+        downloaded = true
+        btn.style.background = 'rgba(16,185,129,0.2)'
+        btn.style.color = 'rgb(16,185,129)'
+        btn.title = 'Already downloaded'
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>'
+      }
+    }).catch(() => {})
+
+    btn.onclick = async (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (downloaded) { showToast('Модель уже скачана', 'success'); return }
+      btn.style.pointerEvents = 'none'
+      btn.innerHTML = '<span style="font-size:12px;">...</span>'
+      try {
+        const result = await chrome.runtime.sendMessage({
+          type: 'DOWNLOAD_MODEL_BY_ID',
+          data: { modelId: parseInt(modelId), modelName, modelType, previewImage },
+        })
+        if (result?.id) {
+          btn.innerHTML = '✓'
+          setTimeout(() => {
+            btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"></path><path d="M7 11l5 5l5 -5"></path><path d="M12 4l0 12"></path></svg>`
+            btn.style.pointerEvents = 'auto'
+          }, 2000)
+        } else {
+          btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"></path><path d="M7 11l5 5l5 -5"></path><path d="M12 4l0 12"></path></svg>`
+          btn.style.pointerEvents = 'auto'
+        }
+      } catch {
+        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"></path><path d="M7 11l5 5l5 -5"></path><path d="M12 4l0 12"></path></svg>`
+        btn.style.pointerEvents = 'auto'
+      }
+    }
+
+    container.appendChild(btn)
+  })
 }
 
 function showToast(msg: string, type: 'success' | 'error' | 'warning') {

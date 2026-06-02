@@ -26,6 +26,10 @@ export default defineBackground({
         handleCheckDownloaded(message.data, sendResponse)
         return true
       }
+      if (message.type === 'DOWNLOAD_MODEL_BY_ID') {
+        handleDownloadByModelID(message.data, sendResponse)
+        return true
+      }
     })
 
     schedulePoll()
@@ -113,6 +117,21 @@ async function handleCheckDownloaded(data: any, sendResponse: (r: any) => void) 
     sendResponse(result)
   } catch {
     sendResponse({ downloaded: false })
+  }
+}
+
+async function handleDownloadByModelID(data: any, sendResponse: (r: any) => void) {
+  try {
+    const port = await getServerPort()
+    const res = await fetch(`http://127.0.0.1:${port}/api/download-by-model-id`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    const result = await res.json()
+    sendResponse(result)
+  } catch {
+    sendResponse({ error: 'Request failed' })
   }
 }
 

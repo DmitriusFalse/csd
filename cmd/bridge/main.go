@@ -61,7 +61,7 @@ func main() {
 	civitaiClient := api.NewClient()
 	manager := downloader.NewManager(cfg, civitaiClient)
 
-	srv := server.New(cfg.Server.Host, cfg.Server.Port, manager, cfgPath, cfg.Logging.File)
+	srv := server.New(cfg.Server.Host, cfg.Server.Port, manager, cfgPath, cfg.Logging.File, civitaiClient)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

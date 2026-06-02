@@ -38,7 +38,7 @@ func newTestServer(t *testing.T, cfg *config.Config) (*Server, *downloader.Manag
 	mgr := downloader.NewManager(cfg, mock)
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	config.Save(*cfg, configPath)
-	s := New(cfg.Server.Host, cfg.Server.Port, mgr, configPath, "")
+	s := New(cfg.Server.Host, cfg.Server.Port, mgr, configPath, "", mock)
 	return s, mgr
 }
 
@@ -261,7 +261,7 @@ func TestConfigEndpoint_GET(t *testing.T) {
 
 	mock := &mockCivitaiClient{}
 	mgr := downloader.NewManager(cfg, mock)
-	s := New(cfg.Server.Host, cfg.Server.Port, mgr, cfgPath, "")
+	s := New(cfg.Server.Host, cfg.Server.Port, mgr, cfgPath, "", mock)
 
 	req := httptest.NewRequest("GET", "/api/config", nil)
 	resp, _ := s.app.Test(req)
@@ -303,7 +303,7 @@ func TestConfigEndpoint_POST(t *testing.T) {
 
 	mock := &mockCivitaiClient{}
 	mgr := downloader.NewManager(cfg, mock)
-	s := New(cfg.Server.Host, cfg.Server.Port, mgr, cfgPath, "")
+	s := New(cfg.Server.Host, cfg.Server.Port, mgr, cfgPath, "", mock)
 
 	updateBody := `{
 		"root_path": "/new-path",
@@ -355,7 +355,7 @@ func TestConfigEndpoint_POST_PartialUpdate(t *testing.T) {
 
 	mock := &mockCivitaiClient{}
 	mgr := downloader.NewManager(cfg, mock)
-	s := New(cfg.Server.Host, cfg.Server.Port, mgr, cfgPath, "")
+	s := New(cfg.Server.Host, cfg.Server.Port, mgr, cfgPath, "", mock)
 
 	// Only update root_path
 	updateBody := `{"root_path": "/updated"}`
@@ -386,7 +386,7 @@ func TestConfigEndpoint_POST_InvalidJSON(t *testing.T) {
 
 	mock := &mockCivitaiClient{}
 	mgr := downloader.NewManager(cfg, mock)
-	s := New(cfg.Server.Host, cfg.Server.Port, mgr, cfgPath, "")
+	s := New(cfg.Server.Host, cfg.Server.Port, mgr, cfgPath, "", mock)
 
 	req := httptest.NewRequest("POST", "/api/config", strings.NewReader("not-json"))
 	req.Header.Set("Content-Type", "application/json")
@@ -405,7 +405,7 @@ func TestLogsEndpoint_NotConfigured(t *testing.T) {
 	}
 	mock := &mockCivitaiClient{}
 	mgr := downloader.NewManager(cfg, mock)
-	s := New(cfg.Server.Host, cfg.Server.Port, mgr, "", "")
+	s := New(cfg.Server.Host, cfg.Server.Port, mgr, "", "", mock)
 
 	req := httptest.NewRequest("GET", "/logs", nil)
 	resp, _ := s.app.Test(req)
@@ -423,7 +423,7 @@ func TestLogsOpenEndpoint_NotConfigured(t *testing.T) {
 	}
 	mock := &mockCivitaiClient{}
 	mgr := downloader.NewManager(cfg, mock)
-	s := New(cfg.Server.Host, cfg.Server.Port, mgr, "", "")
+	s := New(cfg.Server.Host, cfg.Server.Port, mgr, "", "", mock)
 
 	req := httptest.NewRequest("POST", "/logs/open", nil)
 	resp, _ := s.app.Test(req)
@@ -562,7 +562,7 @@ func TestCheckDownloaded_NoLmConnection(t *testing.T) {
 	config.Save(*cfg, cfgPath)
 	mock := &mockCivitaiClient{}
 	mgr := downloader.NewManager(cfg, mock)
-	s := New(cfg.Server.Host, cfg.Server.Port, mgr, cfgPath, "")
+	s := New(cfg.Server.Host, cfg.Server.Port, mgr, cfgPath, "", mock)
 
 	req := httptest.NewRequest("GET", "/api/check-downloaded?name=test&type=LORA", nil)
 	resp, _ := s.app.Test(req)
