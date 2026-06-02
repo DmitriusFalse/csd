@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -563,6 +564,26 @@ func (m *Manager) saveQueue() {
 		state.QueuedDownloads = append(state.QueuedDownloads, *task)
 	}
 
+	var history []models.DownloadTask
+	for _, task := range m.tasks {
+		if task.Status == models.StatusCompleted || task.Status == models.StatusFailed {
+			history = append(history, *task)
+		}
+	}
+	if len(history) > 1 {
+		sort.Slice(history, func(i, j int) bool {
+			ti := history[i].CompletedAt
+			tj := history[j].CompletedAt
+			if ti == nil { ti = &history[i].AddedAt }
+			if tj == nil { tj = &history[j].AddedAt }
+			return ti.After(*tj)
+		})
+	}
+	if len(history) > 20 {
+		history = history[:20]
+	}
+	state.History = history
+
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		logger.Log.Error("Failed to marshal queue", zap.Error(err))
@@ -602,6 +623,11 @@ func (m *Manager) restoreQueue() {
 		task.Error = ""
 		m.tasks[task.ID] = &task
 		m.queue = append(m.queue, &task)
+	}
+
+	for i := range state.History {
+		task := state.History[i]
+		m.tasks[task.ID] = &task
 	}
 
 	if len(m.tasks) > 0 {

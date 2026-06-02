@@ -34,6 +34,7 @@ func (m *mockCivitaiClient) FetchModelInfo(modelVersionID int, apiKey string) (*
 
 func newTestServer(t *testing.T, cfg *config.Config) (*Server, *downloader.Manager) {
 	t.Helper()
+	os.Remove("queue.json")
 	mock := &mockCivitaiClient{}
 	mgr := downloader.NewManager(cfg, mock)
 	configPath := filepath.Join(t.TempDir(), "config.yaml")

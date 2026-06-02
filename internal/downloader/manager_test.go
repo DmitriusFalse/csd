@@ -33,6 +33,7 @@ func (m *mockCivitaiClient) FetchModelInfo(modelVersionID int, apiKey string) (*
 
 func managerTestConfig(t *testing.T) *config.Config {
 	t.Helper()
+	os.Remove("queue.json")
 	return &config.Config{
 		Server: config.ServerConfig{Port: 8765, Host: "127.0.0.1"},
 		APIKey: "test-key",

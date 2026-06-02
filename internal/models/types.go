@@ -71,6 +71,7 @@ type TasksResponse struct {
 type QueueState struct {
 	ActiveDownloads []DownloadTask `json:"active_downloads"`
 	QueuedDownloads []DownloadTask `json:"queued_downloads"`
+	History         []DownloadTask `json:"history,omitempty"`
 }
 
 type CivitaiFile struct {
