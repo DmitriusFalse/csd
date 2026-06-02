@@ -368,6 +368,10 @@ async function init() {
   if (boosty) boosty.onclick = (e) => { e.preventDefault(); chrome.tabs.create({ url: 'https://boosty.to/sir.geronis/donate' }) }
   const patreon = $('donate-patreon')
   if (patreon) patreon.onclick = (e) => { e.preventDefault(); chrome.tabs.create({ url: 'https://www.patreon.com/16134050/join' }) }
+  const dBoosty = $('donate-footer-boosty')
+  if (dBoosty) dBoosty.onclick = (e) => { e.preventDefault(); chrome.tabs.create({ url: 'https://boosty.to/sir.geronis/donate' }) }
+  const dPatreon = $('donate-footer-patreon')
+  if (dPatreon) dPatreon.onclick = (e) => { e.preventDefault(); chrome.tabs.create({ url: 'https://www.patreon.com/16134050/join' }) }
 
   await checkConnection()
 }
