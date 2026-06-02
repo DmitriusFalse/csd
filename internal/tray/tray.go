@@ -12,6 +12,7 @@ import (
 	"github.com/DmitriusFalse/csd/internal/logger"
 	"github.com/energye/systray"
 	"go.uber.org/zap"
+	"golang.org/x/sys/windows/registry"
 )
 
 //go:embed icons/default.ico
@@ -69,6 +70,13 @@ func onReady() {
 
 	systray.AddSeparator()
 
+	autoStartItem := systray.AddMenuItem("🔄 Автозагрузка", "Run on Windows startup")
+	if isAutoStartEnabled() {
+		autoStartItem.Check()
+	}
+
+	systray.AddSeparator()
+
 	donateItem := systray.AddMenuItem("❤ Поддержать", "Donate")
 	boostyItem := donateItem.AddSubMenuItem("Boosty", "Donate via Boosty")
 	patreonItem := donateItem.AddSubMenuItem("Patreon", "Donate via Patreon")
@@ -99,6 +107,19 @@ func onReady() {
 
 	patreonItem.Click(func() {
 		openURL("https://www.patreon.com/16134050/join")
+	})
+
+	autoStartItem.Click(func() {
+		enabled := !autoStartItem.Checked()
+		if err := setAutoStart(enabled); err != nil {
+			logger.Log.Error("Failed to toggle autostart", zap.Error(err))
+			return
+		}
+		if enabled {
+			autoStartItem.Check()
+		} else {
+			autoStartItem.Uncheck()
+		}
 	})
 
 	pauseAllItem.Click(func() {
@@ -181,4 +202,44 @@ func openURL(url string) {
 	default:
 		exec.Command("xdg-open", url).Start()
 	}
+}
+
+const regKey = `Software\Microsoft\Windows\CurrentVersion\Run`
+const regName = "CivitaiSmartDownloader"
+
+func isAutoStartEnabled() bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	k, err := registry.OpenKey(registry.CURRENT_USER, regKey, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+	_, _, err = k.GetStringValue(regName)
+	return err == nil
+}
+
+func setAutoStart(enable bool) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	if enable {
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		k, err := registry.OpenKey(registry.CURRENT_USER, regKey, registry.SET_VALUE)
+		if err != nil {
+			return err
+		}
+		defer k.Close()
+		return k.SetStringValue(regName, `"`+exe+`"`)
+	}
+	k, err := registry.OpenKey(registry.CURRENT_USER, regKey, registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer k.Close()
+	return k.DeleteValue(regName)
 }
