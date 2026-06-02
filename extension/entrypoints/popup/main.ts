@@ -147,9 +147,13 @@ async function fetchTasks() {
 
 async function loadConfig() {
   const port = parseInt($<HTMLInputElement>('server-port')?.value || String(DEFAULT_PORT))
+  const statusEl = $('cfg-status')
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/config`, { signal: AbortSignal.timeout(3000) })
-    if (!res.ok) return
+    if (!res.ok) {
+      if (statusEl) { statusEl.textContent = '❌ Сервер вернул ' + res.status; statusEl.className = 'cfg-status err' }
+      return
+    }
     const cfg = await res.json()
     setValue('cfg-root-path', cfg.root_path)
     setValue('cfg-max-concurrent', cfg.max_concurrent)
@@ -158,11 +162,14 @@ async function loadConfig() {
     setChecked('cfg-sep-folder', cfg.separate_folder)
     setChecked('cfg-save-json', cfg.save_json)
     setValue('cfg-log-level', cfg.log_level)
-    const port = cfg.webhook_url ? extractPort(cfg.webhook_url) : ''
-    setValue('cfg-webhook-port', port)
+    const whPort = cfg.webhook_url ? extractPort(cfg.webhook_url) : ''
+    setValue('cfg-webhook-port', whPort)
     setChecked('cfg-lora-enabled', cfg.lora_enabled)
-    checkWebhook(port)
-  } catch {}
+    checkWebhook(whPort)
+    if (statusEl) { statusEl.textContent = ''; statusEl.className = 'cfg-status' }
+  } catch (e: any) {
+    if (statusEl) { statusEl.textContent = '❌ ' + e.message; statusEl.className = 'cfg-status err' }
+  }
 }
 
 function extractPort(url: string): string {
