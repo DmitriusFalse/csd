@@ -277,33 +277,42 @@ function tryInject(): boolean {
 }
 
 function injectCardButtons() {
-  const cards = document.querySelectorAll<HTMLElement>('[class*="flex flex-col items-center gap-2"], [class*="flex"][class*="flex-col"][class*="items-center"][class*="gap-2"]')
-  if (!cards.length) {
+  const containers = document.querySelectorAll<HTMLElement>('div.flex.flex-col.items-center.gap-2')
+  if (!containers.length) {
     setTimeout(injectCardButtons, 1000)
     return
   }
 
-  cards.forEach((container) => {
+  containers.forEach((container) => {
     if (container.querySelector('.csd-card-btn')) return
 
-    const card = container.closest('[class*="card"]') || container.closest('a[href*="/models/"]') || container.parentElement
+    let card = container.parentElement
+    while (card && !card.querySelector('a[href*="/models/"]')) {
+      card = card.parentElement
+    }
     if (!card) return
 
     const link = card.querySelector<HTMLAnchorElement>('a[href*="/models/"]')
     if (!link) return
-
     const href = link.getAttribute('href') || ''
+
     const match = href.match(/\/models\/(\d+)/)
     if (!match) return
     const modelId = match[1]
 
-    const modelNameEl = card.querySelector<HTMLElement>('[class*="title"]') || card.querySelector<HTMLElement>('[class*="name"]') || link
+    const urlParams = new URLSearchParams(href.split('?')[1] || '')
+    const modelVersionId = urlParams.get('modelVersionId') || ''
+
+    const modelNameEl = card.querySelector<HTMLElement>('p[style*="font-weight: 700"]') ||
+      card.querySelector<HTMLElement>('[class*="title"]') ||
+      card.querySelector<HTMLElement>('[class*="name"]') ||
+      link
     const modelName = modelNameEl?.textContent?.trim() || 'Model'
 
-    const typeEl = card.querySelector<HTMLElement>('[class*="badge"], [class*="tag"], [class*="type"]')
+    const typeEl = card.querySelector<HTMLElement>('[class*="Badge-label"] p, [class*="badge"] p, [class*="Badge-label"]')
     const modelType = typeEl?.textContent?.trim() || 'LORA'
 
-    const img = card.querySelector<HTMLImageElement>('img[src*="civitai"]') || card.querySelector<HTMLImageElement>('img')
+    const img = card.querySelector<HTMLImageElement>('img[src*="image.civitai"], img[src*="civitai"]') || card.querySelector<HTMLImageElement>('img')
     const previewImage = img?.src || ''
 
     const btn = document.createElement('button')
@@ -323,7 +332,7 @@ function injectCardButtons() {
     let downloaded = false
     chrome.runtime.sendMessage({
       type: 'CHECK_DOWNLOADED',
-      data: { name: modelName, type: modelType, modelId },
+      data: { name: modelName, type: modelType, modelId, modelVersionId },
     }).then((r: any) => {
       if (r?.downloaded) {
         downloaded = true
@@ -343,7 +352,7 @@ function injectCardButtons() {
       try {
         const result = await chrome.runtime.sendMessage({
           type: 'DOWNLOAD_MODEL_BY_ID',
-          data: { modelId: parseInt(modelId), modelName, modelType, previewImage },
+          data: { modelId: parseInt(modelId), modelName, modelType, previewImage, modelVersionId: modelVersionId ? parseInt(modelVersionId) : undefined },
         })
         if (result?.id) {
           btn.innerHTML = '✓'
