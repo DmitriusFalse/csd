@@ -1,10 +1,12 @@
 package tray
 
 import (
+	"embed"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
+	"time"
 
 	"github.com/DmitriusFalse/csd/internal/downloader"
 	"github.com/DmitriusFalse/csd/internal/logger"
@@ -12,16 +14,39 @@ import (
 	"go.uber.org/zap"
 )
 
+//go:embed icons/default.ico icons/01.ico icons/err.ico
+var iconFS embed.FS
+
 var (
-	manager   *downloader.Manager
-	rootPath  string
-	onExitFn  func()
+	manager        *downloader.Manager
+	rootPath       string
+	onExitFn       func()
+	defaultIcon    []byte
+	icon01         []byte
+	errIcon        []byte
+	animTicker     *time.Ticker
+	prevActive     int
 )
 
 func Run(mgr *downloader.Manager, root string, onExit func()) {
 	manager = mgr
 	rootPath = root
 	onExitFn = onExit
+
+	var err error
+	defaultIcon, err = iconFS.ReadFile("icons/default.ico")
+	if err != nil {
+		logger.Log.Warn("Failed to load default icon", zap.Error(err))
+	}
+	icon01, err = iconFS.ReadFile("icons/01.ico")
+	if err != nil {
+		logger.Log.Warn("Failed to load 01 icon", zap.Error(err))
+	}
+	errIcon, err = iconFS.ReadFile("icons/err.ico")
+	if err != nil {
+		logger.Log.Warn("Failed to load err icon", zap.Error(err))
+	}
+
 	systray.Run(onReady, onExitFn)
 }
 
@@ -29,10 +54,7 @@ func onReady() {
 	systray.SetTitle("CSD")
 	systray.SetTooltip("Civitai Smart Downloader")
 
-	iconBytes := generateIcon()
-	if len(iconBytes) > 0 {
-		systray.SetTemplateIcon(iconBytes, iconBytes)
-	}
+	setTrayIcon(defaultIcon)
 
 	activeDownloadsItem := systray.AddMenuItem("📥 Активные загрузки (0)", "Active downloads")
 	activeDownloadsItem.Disable()
@@ -76,6 +98,7 @@ func onReady() {
 		if manager.GetActiveCount() > 0 {
 			logger.Log.Info("Quit with active downloads")
 		}
+		stopAnim()
 		systray.Quit()
 	})
 
@@ -95,7 +118,48 @@ func onReady() {
 			title = fmt.Sprintf("CSD [%da/%dq]", activeCount, queueLen)
 		}
 		systray.SetTitle(title)
+
+		if activeCount > 0 {
+			if prevActive == 0 {
+				startAnim()
+			}
+		} else {
+			if prevActive > 0 {
+				stopAnim()
+				setTrayIcon(defaultIcon)
+			}
+		}
+		prevActive = activeCount
 	})
+}
+
+func startAnim() {
+	stopAnim()
+	frame := false
+	animTicker = time.NewTicker(800 * time.Millisecond)
+	go func() {
+		for range animTicker.C {
+			frame = !frame
+			if frame && len(icon01) > 0 {
+				setTrayIcon(icon01)
+			} else if len(defaultIcon) > 0 {
+				setTrayIcon(defaultIcon)
+			}
+		}
+	}()
+}
+
+func stopAnim() {
+	if animTicker != nil {
+		animTicker.Stop()
+		animTicker = nil
+	}
+}
+
+func setTrayIcon(ico []byte) {
+	if len(ico) > 0 {
+		systray.SetTemplateIcon(ico, ico)
+	}
 }
 
 func openDir(path string) {
@@ -135,22 +199,4 @@ func openConfig() {
 		cmd = exec.Command("xdg-open", configPath)
 	}
 	_ = cmd.Start()
-}
-
-func generateIcon() []byte {
-	w, h := 16, 16
-	rgba := make([]byte, w*h*4)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			cx, cy := x-w/2, y-h/2
-			if cx*cx+cy*cy < 40 {
-				idx := (y*w + x) * 4
-				rgba[idx] = 60
-				rgba[idx+1] = 130
-				rgba[idx+2] = 255
-				rgba[idx+3] = 255
-			}
-		}
-	}
-	return rgba
 }
