@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -231,6 +232,8 @@ func (s *Server) setupRoutes() {
 func (s *Server) handleCheckDownloaded(c *fiber.Ctx) error {
 	name := c.Query("name")
 	modelType := c.Query("type")
+	modelVersionID := c.Query("modelVersionId")
+	fileID := c.Query("fileId")
 	if name == "" || modelType == "" {
 		return jsonError(c, http.StatusBadRequest, models.NewAPIError(
 			models.ErrCodeInvalidRequest, "name and type params required", 400, false,
@@ -247,11 +250,24 @@ func (s *Server) handleCheckDownloaded(c *fiber.Ctx) error {
 	logger.Log.Debug("check-downloaded",
 		zap.String("name", name),
 		zap.String("type", modelType),
+		zap.String("modelVersionId", modelVersionID),
+		zap.String("fileId", fileID),
 		zap.String("lm_base_url", cfg.LoraMgr.BaseURL),
 	)
 
+	// Search by CivitAI modelVersionId (precise match only, no fallback)
+	if modelVersionID != "" {
+		found, item := checkLoraManagerByVersionID(cfg.LoraMgr.BaseURL, modelVersionID)
+		if found {
+			logger.Log.Debug("check-downloaded: matched by modelVersionId")
+			return c.JSON(fiber.Map{"downloaded": true, "source": "lm", "item": item})
+		}
+		return c.JSON(fiber.Map{"downloaded": false})
+	}
+
+	// Without modelVersionId, fall back to name-based search
 	found, item := checkLoraManager(cfg.LoraMgr.BaseURL, modelType, name)
-	logger.Log.Debug("check-downloaded result", zap.Bool("found", found))
+	logger.Log.Debug("check-downloaded result", zap.Bool("found", found), zap.String("type", modelType))
 	if found {
 		return c.JSON(fiber.Map{"downloaded": true, "source": "lm", "item": item})
 	}
@@ -441,6 +457,55 @@ func checkLoraManager(baseURL, modelType, modelName string) (bool, map[string]in
 		}
 	}
 
+	return false, nil
+}
+
+func checkLoraManagerByVersionID(baseURL, modelVersionID string) (bool, map[string]interface{}) {
+	if baseURL == "" || modelVersionID == "" {
+		return false, nil
+	}
+
+	targetID, _ := strconv.Atoi(modelVersionID)
+	if targetID == 0 {
+		return false, nil
+	}
+
+	for _, t := range []string{"loras", "checkpoints", "embeddings", "hypernetworks"} {
+		base, err := url.Parse(baseURL + "/api/lm/" + t + "/list?page_size=100")
+		if err != nil {
+			continue
+		}
+
+		logger.Log.Debug("check-downloaded: lm search by version id", zap.String("url", base.String()), zap.Int("target", targetID))
+
+		resp, err := http.Get(base.String())
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+
+		items := parseLmListResponse(body)
+		logger.Log.Debug("check-downloaded: lm version-id search", zap.String("type", t), zap.Int("items", len(items)))
+
+		for _, item := range items {
+			if civitai, ok := item["civitai"].(map[string]interface{}); ok {
+				if id, ok := civitai["id"].(float64); ok && int(id) == targetID {
+					logger.Log.Debug("check-downloaded: matched by civitai.id", zap.Int("id", targetID))
+					return true, item
+				}
+				if idStr, ok := civitai["id"].(string); ok {
+					if parsed, err := strconv.Atoi(idStr); err == nil && parsed == targetID {
+						logger.Log.Debug("check-downloaded: matched by civitai.id (string)", zap.Int("id", targetID))
+						return true, item
+					}
+				}
+			}
+		}
+	}
 	return false, nil
 }
 

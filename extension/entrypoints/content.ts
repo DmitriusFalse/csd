@@ -15,8 +15,8 @@ function findDownloadLink(): HTMLAnchorElement | null {
 }
 
 function extractModelType(): string {
-  const pageText = document.body.innerText
-  const firstWords = pageText.substring(0, 300)
+  const fullText = document.body.innerText || ''
+  const firstWords = fullText.substring(0, 1000)
 
   const typeMatch = firstWords.match(/(Checkpoint|LoRA|Textual\s*Inversion|Embedding|Hypernetwork|ControlNet|Poses|Motion\s*Module|VAE|Upscaler|Wildcards|Workflows|Other)\b/i)
   if (typeMatch) {
@@ -34,12 +34,16 @@ function extractModelType(): string {
     '[class*="tag" i]',
     '[class*="badge" i]',
     '[class*="type" i]',
+    '[data-testid*="badge" i]',
+    '[data-testid*="type" i]',
   ]
   for (const sel of typeSelectors) {
-    const el = document.querySelector<HTMLElement>(sel)
-    if (el) {
+    const elements = document.querySelectorAll<HTMLElement>(sel)
+    for (const el of elements) {
       const text = el.textContent?.trim() || ''
       const lower = text.toLowerCase()
+      if (lower === 'checkpoint') return 'Checkpoint'
+      if (lower === 'lora') return 'LoRA'
       if (lower.includes('checkpoint')) return 'Checkpoint'
       if (lower.includes('lora')) return 'LoRA'
       if (lower.includes('textual') || lower.includes('embedding')) return 'TextualInversion'
@@ -59,6 +63,21 @@ function extractModelType(): string {
     }
   }
 
+  // Fallback: scan entire body for known type keywords
+  const bodyLower = fullText.toLowerCase()
+  const typeKeywords = [
+    ['checkpoint', 'Checkpoint'] as const,
+    ['lora', 'LoRA'] as const,
+    ['textual inversion', 'TextualInversion'] as const,
+    ['embedding', 'TextualInversion'] as const,
+    ['hypernetwork', 'Hypernetwork'] as const,
+    ['controlnet', 'ControlNet'] as const,
+  ]
+  const firstThreeHundred = bodyLower.substring(0, 300)
+  for (const [kw, result] of typeKeywords) {
+    if (firstThreeHundred.includes(kw)) return result
+  }
+
   return 'LORA'
 }
 
@@ -67,14 +86,33 @@ function extractModelId(): string | null {
   return match ? match[1] : null
 }
 
+function extractVersionLabel(): string {
+  const buttons = document.querySelectorAll<HTMLElement>('button[style*="blue-filled"]')
+  for (const btn of buttons) {
+    const text = btn.textContent || ''
+    const match = text.match(/(v?\d+\.\d+\S*(?:\s+\S+)*)/i)
+    if (match) return match[1].trim()
+  }
+  return ''
+}
+
 function extractPageData() {
   const urlParams = new URLSearchParams(window.location.search)
-  const modelVersionId = urlParams.get('modelVersionId')
+  let modelVersionId = urlParams.get('modelVersionId')
   const downloadLink = findDownloadLink()
-  if (!downloadLink || !modelVersionId) return null
+  if (!downloadLink) return null
 
   const href = downloadLink.getAttribute('href') || ''
   const queryString = href.split('?')[1] || ''
+
+  // Extract modelVersionId from download link if not in URL
+  if (!modelVersionId) {
+    const match = href.match(/\/api\/download\/models\/(\d+)/)
+    if (match) modelVersionId = match[1]
+  }
+
+  if (!modelVersionId) return null
+
   const fileId = new URLSearchParams(queryString).get('fileId')
 
   const modelName =
@@ -89,7 +127,10 @@ function extractPageData() {
     document.querySelector<HTMLImageElement>('[class*="carousel"] img, [class*="ResourceImage"] img, [class*="preview"] img')?.src ||
     ''
 
-  return { modelVersionId, fileId, modelName, fileSize, previewImage, modelId: extractModelId(), modelType: extractModelType() }
+  const versionLabel = extractVersionLabel()
+  const checkName = versionLabel ? `${modelName} ${versionLabel}` : modelName
+
+  return { modelVersionId, fileId, modelName, fileSize, previewImage, modelId: extractModelId(), modelType: extractModelType(), versionLabel, checkName }
 }
 
 function injectButton(data: NonNullable<ReturnType<typeof extractPageData>>) {
@@ -161,7 +202,7 @@ function injectButton(data: NonNullable<ReturnType<typeof extractPageData>>) {
   const modelIdVal = data.modelId || ''
   chrome.runtime.sendMessage({
     type: 'CHECK_DOWNLOADED',
-    data: { name: data.modelName, type: data.modelType, modelId: modelIdVal },
+    data: { name: data.modelName, type: data.modelType, modelId: modelIdVal, modelVersionId: data.modelVersionId, fileId: data.fileId },
   }).then((result: any) => {
     console.log('[CSD] check-downloaded response:', JSON.stringify(result))
     if (result?.downloaded) {
@@ -340,16 +381,43 @@ function showToast(msg: string, type: 'success' | 'error' | 'warning') {
 }
 
 function observePageChanges() {
-  let attempts = 0
+  // Init lastHref from current link to avoid unnecessary re-inject
+  const initLink = findDownloadLink()
+  let lastHref = initLink?.getAttribute('href') || ''
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined
+
+  const checkAndUpdate = () => {
+    const link = findDownloadLink()
+    if (!link) return
+    const href = link.getAttribute('href') || ''
+    if (href && href !== lastHref) {
+      lastHref = href
+      setTimeout(() => {
+        const old = document.querySelector('.csd-btn')
+        if (old) old.remove()
+        tryInject()
+      }, 300)
+    }
+  }
+
   const observer = new MutationObserver(() => {
-    if (document.querySelector('.csd-btn')) return
-    attempts++
-    if (tryInject()) {
-      observer.disconnect()
-    } else if (attempts > 30) {
-      observer.disconnect()
+    clearTimeout(debounceTimer)
+    debounceTimer = setTimeout(checkAndUpdate, 300)
+  })
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['href'] })
+
+  // Direct click listener on version buttons
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement
+    const btn = target.closest('button')
+    if (!btn) return
+    if (btn.textContent?.match(/v?\d+\.\d+/i)) {
+      clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(checkAndUpdate, 400)
     }
   })
-  observer.observe(document.body, { childList: true, subtree: true })
-  setTimeout(() => observer.disconnect(), 30000)
+
+  // Polling fallback every 2s
+  const pollId = setInterval(checkAndUpdate, 2000)
+  setTimeout(() => { clearInterval(pollId); observer.disconnect() }, 120000)
 }
