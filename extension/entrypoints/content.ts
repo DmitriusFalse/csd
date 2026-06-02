@@ -1,4 +1,3 @@
-import { browser } from 'wxt/browser'
 import { defineContentScript } from 'wxt/sandbox'
 
 export default defineContentScript({
@@ -111,7 +110,7 @@ function injectButton(data: NonNullable<ReturnType<typeof extractPageData>>) {
     textSpan.textContent = '...'
 
     try {
-      const result = await browser.runtime.sendMessage({
+      const result = await chrome.runtime.sendMessage({
         type: 'DOWNLOAD_MODEL',
         data: {
           modelVersionId: parseInt(data.modelVersionId),

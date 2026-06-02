@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/DmitriusFalse/csd/internal/api"
@@ -16,6 +17,7 @@ import (
 	"github.com/DmitriusFalse/csd/internal/logger"
 	"github.com/DmitriusFalse/csd/internal/server"
 	"github.com/DmitriusFalse/csd/internal/tray"
+	"github.com/energye/systray"
 	"go.uber.org/zap"
 )
 
@@ -64,6 +66,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Server runs in background goroutine
 	go func() {
 		addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 		logger.Log.Info("Server starting", zap.String("addr", addr))
@@ -77,17 +80,24 @@ func main() {
 		<-ctx.Done()
 		logger.Log.Info("Shutting down by signal...")
 	} else {
+		var shutdownOnce sync.Once
 		shutdownCh := make(chan struct{})
-		go tray.Run(manager, cfg.RootPath, func() {
-			close(shutdownCh)
+
+		// Signal handler in background goroutine
+		go func() {
+			<-ctx.Done()
+			logger.Log.Info("Shutting down by signal...")
+			shutdownOnce.Do(func() { close(shutdownCh) })
+			systray.Quit()
+		}()
+
+		// Tray MUST run on main goroutine for Windows message pump
+		tray.Run(manager, cfg.RootPath, func() {
+			shutdownOnce.Do(func() { close(shutdownCh) })
 		})
 
-		select {
-		case <-ctx.Done():
-			logger.Log.Info("Shutting down by signal...")
-		case <-shutdownCh:
-			logger.Log.Info("Shutting down by user request...")
-		}
+		<-shutdownCh
+		logger.Log.Info("Shutting down by user request...")
 	}
 
 	manager.Shutdown()

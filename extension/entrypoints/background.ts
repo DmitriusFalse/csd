@@ -1,4 +1,3 @@
-import { browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/sandbox'
 
 const DEFAULT_PORT = 8765
@@ -11,7 +10,7 @@ let prevActive = 0
 
 export default defineBackground({
   main() {
-    browser.runtime.onMessage.addListener((message: any, _sender: any, sendResponse: (response?: any) => void) => {
+    chrome.runtime.onMessage.addListener((message: any, _sender: any, sendResponse: (response?: any) => void) => {
       if (message.type === 'DOWNLOAD_MODEL') {
         handleDownload(message.data, sendResponse)
         return true
@@ -70,7 +69,9 @@ function stopAnim(fallback: string | null) {
 
 function setIcon(name: string) {
   try {
-    chrome.action.setIcon({ path: { '128': `icons/${name}.png` } })
+    chrome.action.setIcon({ path: { '128': `icons/${name}.png` } }, () => {
+      chrome.runtime.lastError
+    })
   } catch {}
 }
 
@@ -116,14 +117,22 @@ async function handleHealthCheck(port: number, sendResponse: (r: any) => void) {
   }
 }
 
-async function getServerPort(): Promise<number> {
-  const result = await browser.storage.local.get('serverPort')
-  return result.serverPort || DEFAULT_PORT
+function getServerPort(): Promise<number> {
+  return new Promise(resolve => {
+    try {
+      if (!chrome.storage?.local) return resolve(DEFAULT_PORT)
+      chrome.storage.local.get('serverPort', (r: any) => resolve(r?.serverPort || DEFAULT_PORT))
+    } catch { resolve(DEFAULT_PORT) }
+  })
 }
 
-async function getApiKey(): Promise<string | undefined> {
-  const result = await browser.storage.local.get('apiKey')
-  return result.apiKey
+function getApiKey(): Promise<string | undefined> {
+  return new Promise(resolve => {
+    try {
+      if (!chrome.storage?.local) return resolve(undefined)
+      chrome.storage.local.get('apiKey', (r: any) => resolve(r?.apiKey))
+    } catch { resolve(undefined) }
+  })
 }
 
 async function sendDownloadRequest(request: {

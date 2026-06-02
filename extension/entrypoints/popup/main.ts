@@ -1,27 +1,36 @@
-import { browser } from 'wxt/browser'
-
 const DEFAULT_PORT = 8765
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let configOpen = false
 
-function $(id: string): HTMLElement | null { return document.getElementById(id) }
+function $<T = HTMLElement>(id: string): T | null {
+  return document.getElementById(id) as T | null
+}
 
 async function loadSettings() {
-  const { serverPort, apiKey } = await browser.storage.local.get(['serverPort', 'apiKey'])
-  const portEl = $<HTMLInputElement>('server-port')
-  const keyEl = $<HTMLInputElement>('api-key')
-  if (portEl && serverPort) portEl.value = String(serverPort)
-  if (keyEl && apiKey) keyEl.value = apiKey
+  const { serverPort, apiKey } = await chrome.storage.local.get(['serverPort', 'apiKey'])
+  const portEl = document.getElementById('config-port') as HTMLInputElement
+  if (portEl) portEl.value = String(serverPort || DEFAULT_PORT)
+  const keyEl = document.getElementById('config-key') as HTMLInputElement
+  if (keyEl) keyEl.value = apiKey || ''
+}
+
+async function saveSettings() {
+  const el = document.getElementById('config-port') as HTMLInputElement
+  if (el) await chrome.storage.local.set({ serverPort: parseInt(el.value) || DEFAULT_PORT })
+  const el2 = document.getElementById('config-key') as HTMLInputElement
+  if (el2) await chrome.storage.local.set({ apiKey: el2.value })
+  closeConfig()
+  refreshTasks()
 }
 
 async function savePort() {
   const el = $<HTMLInputElement>('server-port')
-  if (el) await browser.storage.local.set({ serverPort: parseInt(el.value) || DEFAULT_PORT })
+  if (el) await chrome.storage.local.set({ serverPort: parseInt(el.value) || DEFAULT_PORT })
 }
 
 async function saveKey() {
   const el = $<HTMLInputElement>('api-key')
-  if (el) await browser.storage.local.set({ apiKey: el.value })
+  if (el) await chrome.storage.local.set({ apiKey: el.value })
 }
 
 function formatBytes(bytes: number): string {
