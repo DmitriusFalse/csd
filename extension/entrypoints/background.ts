@@ -1,11 +1,10 @@
 import { defineBackground } from 'wxt/sandbox'
 
 const DEFAULT_PORT = 8765
-const POLL_INTERVAL = 5000
-const ANIM_INTERVAL = 1000
+const POLL_IDLE = 5000
+const POLL_ACTIVE = 1000
 
-let animTimer: ReturnType<typeof setInterval> | null = null
-let animFrame = false
+let pollTimer: ReturnType<typeof setTimeout> | null = null
 let prevActive = 0
 
 export default defineBackground({
@@ -25,10 +24,15 @@ export default defineBackground({
       }
     })
 
-    pollHealth()
-    setInterval(pollHealth, POLL_INTERVAL)
+    schedulePoll()
   },
 })
+
+function schedulePoll() {
+  pollHealth().then(() => {
+    pollTimer = setTimeout(schedulePoll, prevActive > 0 ? POLL_ACTIVE : POLL_IDLE)
+  })
+}
 
 async function pollHealth() {
   const port = await getServerPort()
@@ -37,34 +41,12 @@ async function pollHealth() {
     const data = await res.json()
     const active = (data.active || 0) + (data.queued || 0)
 
-    if (active > 0) {
-      if (prevActive === 0) startAnim()
-    } else {
-      if (prevActive > 0) stopAnim('default')
-    }
+    setIcon(active > 0 ? 'down' : 'default')
     prevActive = active
   } catch {
-    if (prevActive > 0) stopAnim('err')
-    else setIcon('err')
+    setIcon('err')
     prevActive = -1
   }
-}
-
-function startAnim() {
-  stopAnim(null)
-  animFrame = false
-  animTimer = setInterval(() => {
-    animFrame = !animFrame
-    setIcon(animFrame ? '01' : 'default')
-  }, ANIM_INTERVAL)
-}
-
-function stopAnim(fallback: string | null) {
-  if (animTimer !== null) {
-    clearInterval(animTimer)
-    animTimer = null
-  }
-  if (fallback) setIcon(fallback)
 }
 
 function setIcon(name: string) {

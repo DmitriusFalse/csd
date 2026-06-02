@@ -14,18 +14,15 @@ import (
 	"go.uber.org/zap"
 )
 
-//go:embed icons/default.ico icons/01.ico icons/err.ico
+//go:embed icons/default.ico
 var iconFS embed.FS
 
 var (
-	manager        *downloader.Manager
-	rootPath       string
-	onExitFn       func()
-	defaultIcon    []byte
-	icon01         []byte
-	errIcon        []byte
-	animTicker     *time.Ticker
-	prevActive     int
+	defaultIcon []byte
+
+	manager  *downloader.Manager
+	rootPath string
+	onExitFn func()
 )
 
 func Run(mgr *downloader.Manager, root string, onExit func()) {
@@ -38,14 +35,6 @@ func Run(mgr *downloader.Manager, root string, onExit func()) {
 	if err != nil {
 		logger.Log.Warn("Failed to load default icon", zap.Error(err))
 	}
-	icon01, err = iconFS.ReadFile("icons/01.ico")
-	if err != nil {
-		logger.Log.Warn("Failed to load 01 icon", zap.Error(err))
-	}
-	errIcon, err = iconFS.ReadFile("icons/err.ico")
-	if err != nil {
-		logger.Log.Warn("Failed to load err icon", zap.Error(err))
-	}
 
 	systray.Run(onReady, onExitFn)
 }
@@ -53,11 +42,14 @@ func Run(mgr *downloader.Manager, root string, onExit func()) {
 func onReady() {
 	systray.SetTitle("CSD")
 	systray.SetTooltip("Civitai Smart Downloader")
+	if len(defaultIcon) > 0 {
+		systray.SetTemplateIcon(defaultIcon, defaultIcon)
+	}
 
-	setTrayIcon(defaultIcon)
+	titleItem := systray.AddMenuItem("Civitai Smart Downloader", "Civitai Smart Downloader")
+	titleItem.Disable()
 
-	activeDownloadsItem := systray.AddMenuItem("📥 Активные загрузки (0)", "Active downloads")
-	activeDownloadsItem.Disable()
+	systray.AddSeparator()
 
 	pauseAllItem := systray.AddMenuItem("⏸ Пауза всех", "Pause all downloads")
 	resumeAllItem := systray.AddMenuItem("▶ Возобновить все", "Resume all downloads")
@@ -105,12 +97,15 @@ func onReady() {
 		if manager.GetActiveCount() > 0 {
 			logger.Log.Info("Quit with active downloads")
 		}
-		stopAnim()
 		systray.Quit()
 	})
 
+	var lastUpdate time.Time
 	manager.SetOnUpdate(func(activeCount int, queueLen int) {
-		activeDownloadsItem.SetTitle(fmt.Sprintf("📥 Активные загрузки (active: %d, queued: %d)", activeCount, queueLen))
+		if time.Since(lastUpdate) < 500*time.Millisecond {
+			return
+		}
+		lastUpdate = time.Now()
 
 		tooltip := "Civitai Smart Downloader"
 		if activeCount > 0 {
@@ -123,48 +118,7 @@ func onReady() {
 			title = fmt.Sprintf("CSD [%da/%dq]", activeCount, queueLen)
 		}
 		systray.SetTitle(title)
-
-		if activeCount > 0 {
-			if prevActive == 0 {
-				startAnim()
-			}
-		} else {
-			if prevActive > 0 {
-				stopAnim()
-				setTrayIcon(defaultIcon)
-			}
-		}
-		prevActive = activeCount
 	})
-}
-
-func startAnim() {
-	stopAnim()
-	frame := false
-	animTicker = time.NewTicker(800 * time.Millisecond)
-	go func() {
-		for range animTicker.C {
-			frame = !frame
-			if frame && len(icon01) > 0 {
-				setTrayIcon(icon01)
-			} else if len(defaultIcon) > 0 {
-				setTrayIcon(defaultIcon)
-			}
-		}
-	}()
-}
-
-func stopAnim() {
-	if animTicker != nil {
-		animTicker.Stop()
-		animTicker = nil
-	}
-}
-
-func setTrayIcon(ico []byte) {
-	if len(ico) > 0 {
-		systray.SetTemplateIcon(ico, ico)
-	}
 }
 
 func openDir(path string) {
