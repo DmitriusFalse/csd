@@ -69,7 +69,9 @@ function stopAnim(fallback: string | null) {
 }
 
 function setIcon(name: string) {
-  browser.action.setIcon({ path: { '128': `icons/${name}.png` } }).catch(() => {})
+  try {
+    chrome.action.setIcon({ path: { '128': `icons/${name}.png` } })
+  } catch {}
 }
 
 async function handleDownload(data: any, sendResponse: (r: any) => void) {
