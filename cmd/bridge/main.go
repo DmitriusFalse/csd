@@ -1,4 +1,5 @@
 //go:generate windres -i bridge.rc -o bridge.syso -O coff
+// Build with: go build -ldflags="-H=windowsgui" -o csd-bridge.exe .\cmd\bridge\
 package main
 
 import (

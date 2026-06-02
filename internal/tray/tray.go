@@ -65,10 +65,13 @@ func onReady() {
 	systray.AddSeparator()
 
 	openFolderItem := systray.AddMenuItem("📂 Открыть папку загрузок", "Open downloads folder")
+	configItem := systray.AddMenuItem("📄 Открыть config.yaml", "Open config file")
 
-	settingsItem := systray.AddMenuItem("⚙ Настройки", "Settings")
-	configItem := settingsItem.AddSubMenuItem("📄 Открыть config.yaml", "Open config file")
-	changeKeyItem := settingsItem.AddSubMenuItem("🔑 Сменить API-ключ", "Change API key")
+	systray.AddSeparator()
+
+	sitesItem := systray.AddMenuItem("🌐 Сайты", "Websites")
+	civitaiItem := sitesItem.AddSubMenuItem("civitai.com", "Open civitai.com")
+	civitaiRedItem := sitesItem.AddSubMenuItem("civitai.red", "Open civitai.red")
 
 	systray.AddSeparator()
 
@@ -82,8 +85,12 @@ func onReady() {
 		openConfig()
 	})
 
-	changeKeyItem.Click(func() {
-		logger.Log.Info("API key change requested (not yet implemented)")
+	civitaiItem.Click(func() {
+		openURL("https://civitai.com")
+	})
+
+	civitaiRedItem.Click(func() {
+		openURL("https://civitai.red")
 	})
 
 	pauseAllItem.Click(func() {
@@ -194,5 +201,16 @@ func openConfig() {
 		exec.Command("open", configPath).Start()
 	default:
 		exec.Command("xdg-open", configPath).Start()
+	}
+}
+
+func openURL(url string) {
+	switch runtime.GOOS {
+	case "windows":
+		exec.Command("cmd", "/c", "start", "", url).Start()
+	case "darwin":
+		exec.Command("open", url).Start()
+	default:
+		exec.Command("xdg-open", url).Start()
 	}
 }
