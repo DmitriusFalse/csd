@@ -170,16 +170,14 @@ func openDir(path string) {
 		}
 	}
 
-	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("explorer", path)
+		exec.Command("cmd", "/c", "start", "", path).Start()
 	case "darwin":
-		cmd = exec.Command("open", path)
+		exec.Command("open", path).Start()
 	default:
-		cmd = exec.Command("xdg-open", path)
+		exec.Command("xdg-open", path).Start()
 	}
-	_ = cmd.Start()
 }
 
 func openConfig() {
@@ -189,14 +187,12 @@ func openConfig() {
 		return
 	}
 
-	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("notepad", configPath)
+		exec.Command("cmd", "/c", "start", "", configPath).Start()
 	case "darwin":
-		cmd = exec.Command("open", configPath)
+		exec.Command("open", configPath).Start()
 	default:
-		cmd = exec.Command("xdg-open", configPath)
+		exec.Command("xdg-open", configPath).Start()
 	}
-	_ = cmd.Start()
 }
