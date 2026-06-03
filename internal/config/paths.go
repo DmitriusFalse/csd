@@ -2,27 +2,41 @@ package config
 
 import (
 	"path/filepath"
+	"strings"
 
 	"github.com/DmitriusFalse/csd/internal/models"
 )
 
 var baseModelFolders = map[string]string{
-	"SD 1.5":  "SD15",
-	"SD 2.0":  "SD20",
-	"SDXL":    "SDXL",
+	"SD 1.5":   "SD15",
+	"SD 2.0":   "SD20",
+	"SDXL":     "SDXL",
 	"SDXL 1.0": "SDXL",
-	"Pony":    "Pony",
-	"Flux":    "Flux",
-	"Flux.1":  "Flux",
-	"SD3":     "SD3",
-	"SD3.5":   "SD3",
+	"Pony":     "Pony",
+	"Flux":     "Flux",
+	"Flux.1":   "Flux",
+	"SD3":      "SD3",
+	"SD3.5":    "SD3",
+}
+
+func sanitizeComponent(s string) string {
+	s = filepath.Clean(s)
+	if strings.Contains(s, "..") {
+		return "Other"
+	}
+	s = strings.TrimLeft(s, ".")
+	s = strings.TrimLeft(s, "/\\")
+	if s == "" || s == "." {
+		return "Other"
+	}
+	return s
 }
 
 func resolveBaseModelFolder(baseModel string) string {
 	if folder, ok := baseModelFolders[baseModel]; ok {
 		return folder
 	}
-	return baseModel
+	return sanitizeComponent(baseModel)
 }
 
 func GetSavePath(root string, modelType models.ModelType, baseModel string, isNSFW bool, nsfwSuffix string) string {
@@ -46,7 +60,10 @@ func GetSavePath(root string, modelType models.ModelType, baseModel string, isNS
 
 	path := filepath.Join(root, typeFolder, baseFolder)
 	if isNSFW {
-		path += nsfwSuffix
+		suffix := strings.TrimSpace(nsfwSuffix)
+		if suffix != "" {
+			path += sanitizeComponent(suffix)
+		}
 	}
 
 	return path

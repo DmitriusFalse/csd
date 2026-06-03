@@ -51,6 +51,5 @@ var (
 	TAuto     = Tt("Auto (system)", "Авто (системы)")
 	TEn       = Tt("English", "English")
 	TRu       = Tt("Russian", "Русский")
-	ActiveFmt     = Tt("%d active, %d queued", "%d активных, %d в очереди")
 	StatusActive  = Tt("%d active | %d queued", "%d активных | %d в очереди")
 )

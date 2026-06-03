@@ -24,14 +24,16 @@ var (
 
 	manager    *downloader.Manager
 	rootPath   string
+	configPath string
 	appVersion string
 	onExitFn   func()
 	lang       i18n.Lang
 )
 
-func Run(mgr *downloader.Manager, root, version string, onExit func()) {
+func Run(mgr *downloader.Manager, root, cfgPath, version string, onExit func()) {
 	manager = mgr
 	rootPath = root
+	configPath = cfgPath
 	appVersion = version
 	onExitFn = onExit
 	lang = i18n.DetectLang()
@@ -248,7 +250,6 @@ func openDir(path string) {
 }
 
 func openConfig() {
-	configPath := "config.yaml"
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		logger.Log.Warn("Config file not found", zap.String("path", configPath))
 		return

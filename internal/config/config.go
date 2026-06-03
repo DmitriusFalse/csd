@@ -25,10 +25,9 @@ type ServerConfig struct {
 }
 
 type QueueConfig struct {
-	MaxConcurrent    int `yaml:"max_concurrent"`
-	RetryAttempts    int `yaml:"retry_attempts"`
-	RetryDelaySec    int `yaml:"retry_delay_seconds"`
-	RateLimitDelayMs int `yaml:"rate_limit_delay_ms"`
+	MaxConcurrent int `yaml:"max_concurrent"`
+	RetryAttempts int `yaml:"retry_attempts"`
+	RetryDelaySec int `yaml:"retry_delay_seconds"`
 }
 
 type LoraManager struct {
@@ -73,10 +72,9 @@ var defaultConfig = Config{
 	APIKey:   "",
 	RootPath: "D:/AI/Models",
 	Queue: QueueConfig{
-		MaxConcurrent:    2,
-		RetryAttempts:    3,
-		RetryDelaySec:    60,
-		RateLimitDelayMs: 1000,
+		MaxConcurrent: 2,
+		RetryAttempts: 3,
+		RetryDelaySec: 60,
 	},
 	LoraMgr: LoraManager{
 		Enabled:       false,

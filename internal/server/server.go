@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/DmitriusFalse/csd/internal/api"
@@ -24,6 +27,8 @@ import (
 	"go.uber.org/zap"
 )
 
+var httpClient = &http.Client{Timeout: 15 * time.Second}
+
 type Server struct {
 	app        *fiber.App
 	manager    *downloader.Manager
@@ -32,9 +37,17 @@ type Server struct {
 	configPath string
 	logPath    string
 	civitai    api.ModelInfoFetcher
+
+	mu  sync.RWMutex
+	cfg *config.Config
 }
 
 func New(host string, port int, manager *downloader.Manager, configPath, logPath string, civitai api.ModelInfoFetcher) *Server {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		logger.Log.Warn("Failed to load config for cache", zap.Error(err))
+	}
+
 	s := &Server{
 		app: fiber.New(fiber.Config{
 			DisableStartupMessage: true,
@@ -46,6 +59,7 @@ func New(host string, port int, manager *downloader.Manager, configPath, logPath
 		configPath: configPath,
 		logPath:    logPath,
 		civitai:    civitai,
+		cfg:        cfg,
 	}
 
 	s.app.Use(cors.New(cors.Config{
@@ -56,6 +70,23 @@ func New(host string, port int, manager *downloader.Manager, configPath, logPath
 
 	s.setupRoutes()
 	return s
+}
+
+func (s *Server) getConfig() *config.Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg
+}
+
+func (s *Server) reloadConfig() {
+	cfg, err := config.Load(s.configPath)
+	if err != nil {
+		logger.Log.Warn("Failed to reload config", zap.Error(err))
+		return
+	}
+	s.mu.Lock()
+	s.cfg = cfg
+	s.mu.Unlock()
 }
 
 func errorHandler(c *fiber.Ctx, err error) error {
@@ -112,9 +143,14 @@ func (s *Server) setupRoutes() {
 		}
 		absPath, err := filepath.Abs(s.logPath)
 		if err == nil {
-			exec.Command("explorer", "/select,", absPath).Start()
+			exec.Command("explorer", "/select,"+absPath).Start()
 		}
 		return c.JSON(fiber.Map{"status": "opened"})
+	})
+
+	s.app.Post("/api/config/reload", func(c *fiber.Ctx) error {
+		s.reloadConfig()
+		return c.JSON(fiber.Map{"status": "reloaded"})
 	})
 
 	s.app.Get("/config", func(c *fiber.Ctx) error {
@@ -123,9 +159,9 @@ func (s *Server) setupRoutes() {
 	})
 
 	s.app.Get("/api/config", func(c *fiber.Ctx) error {
-		cfg, err := config.Load(s.configPath)
-		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		cfg := s.getConfig()
+		if cfg == nil {
+			return c.Status(500).JSON(fiber.Map{"error": "config not loaded"})
 		}
 		key := cfg.APIKey
 		if len(key) > 4 {
@@ -156,10 +192,13 @@ func (s *Server) setupRoutes() {
 		if err := c.BodyParser(&updates); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid json"})
 		}
-		cfg, err := config.Load(s.configPath)
-		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		cfg := s.getConfig()
+		if cfg == nil {
+			return c.Status(500).JSON(fiber.Map{"error": "config not loaded"})
 		}
+		// Make a mutable copy
+		cfgCopy := *cfg
+		cfg = &cfgCopy
 		if v, ok := updates["root_path"]; ok {
 			if s, ok := v.(string); ok {
 				cfg.RootPath = s
@@ -223,6 +262,7 @@ func (s *Server) setupRoutes() {
 		if err := config.Save(*cfg, s.configPath); err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
+		s.reloadConfig()
 		return c.JSON(fiber.Map{"status": "saved"})
 	})
 
@@ -246,8 +286,8 @@ func (s *Server) handleCheckDownloaded(c *fiber.Ctx) error {
 		))
 	}
 
-	cfg, err := config.Load(s.configPath)
-	if err != nil {
+	cfg := s.getConfig()
+	if cfg == nil {
 		return jsonError(c, http.StatusInternalServerError, models.NewAPIError(
 			models.ErrCodeServerError, "failed to load config", 500, false,
 		))
@@ -298,9 +338,9 @@ func (s *Server) handleDownloadByModelID(c *fiber.Ctx) error {
 		))
 	}
 
-	cfg, err := config.Load(s.configPath)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	cfg := s.getConfig()
+	if cfg == nil {
+		return c.Status(500).JSON(fiber.Map{"error": "config not loaded"})
 	}
 
 	// Fetch model info from CivitAI to get latest version
@@ -324,7 +364,7 @@ func (s *Server) handleDownloadByModelID(c *fiber.Ctx) error {
 		return c.Status(502).JSON(fiber.Map{"error": fmt.Sprintf("CivitAI returned %d", resp.StatusCode)})
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	var modelInfo struct {
 		ID       int    `json:"id"`
 		Name     string `json:"name"`
@@ -384,15 +424,15 @@ func (s *Server) handleDownloadByModelID(c *fiber.Ctx) error {
 }
 
 func (s *Server) handleCheckLMHealth(c *fiber.Ctx) error {
-	cfg, err := config.Load(s.configPath)
-	if err != nil {
-		return c.JSON(fiber.Map{"reachable": false, "error": "config load failed"})
+	cfg := s.getConfig()
+	if cfg == nil {
+		return c.JSON(fiber.Map{"reachable": false, "error": "config not loaded"})
 	}
 	baseURL := cfg.LoraMgr.BaseURL
 	if baseURL == "" {
 		return c.JSON(fiber.Map{"reachable": false, "error": "lm_base_url not configured"})
 	}
-	resp, err := http.Get(baseURL + "/api/lm/loras/list?page_size=1")
+	resp, err := httpClient.Get(baseURL + "/api/lm/loras/list?page_size=1")
 	if err != nil {
 		return c.JSON(fiber.Map{"reachable": false, "error": err.Error()})
 	}
@@ -411,58 +451,74 @@ func checkLoraManager(baseURL, modelType, modelName string) (bool, map[string]in
 	}
 
 	types := civitaiToLmTypes(modelType)
+	result := make(chan map[string]interface{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
+	var wg sync.WaitGroup
 	for _, t := range types {
-		base, err := url.Parse(baseURL + "/api/lm/" + t + "/list")
-		if err != nil {
-			logger.Log.Debug("check-downloaded: bad base url", zap.Error(err))
-			continue
-		}
+		wg.Add(1)
+		go func(t string) {
+			defer wg.Done()
 
-		for _, params := range []url.Values{
-			{"search": {modelName}, "fuzzy": {"true"}, "search_filename": {"true"}, "page_size": {"20"}},
-			{"search": {modelName}, "page_size": {"20"}},
-			{"search_modelname": {modelName}, "page_size": {"20"}},
-			{"search_filename": {modelName}, "page_size": {"20"}},
-		} {
-			base.RawQuery = params.Encode()
-			urlStr := base.String()
-			logger.Log.Debug("check-downloaded: requesting lm", zap.String("url", urlStr))
-
-			resp, err := http.Get(urlStr)
-			if err != nil {
-				logger.Log.Debug("check-downloaded: lm request failed", zap.String("type", t), zap.Error(err))
-				continue
+			queryVariants := []url.Values{
+				{"search": {modelName}, "fuzzy": {"true"}, "search_filename": {"true"}, "page_size": {"20"}},
+				{"search": {modelName}, "page_size": {"20"}},
+				{"search_modelname": {modelName}, "page_size": {"20"}},
+				{"search_filename": {modelName}, "page_size": {"20"}},
 			}
-
-			body, err := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			if err != nil {
-				continue
-			}
-
-			if resp.StatusCode != http.StatusOK {
-				logger.Log.Debug("check-downloaded: lm bad status", zap.Int("status", resp.StatusCode), zap.String("body", string(body)))
-				continue
-			}
-
-			items := parseLmListResponse(body)
-			logger.Log.Debug("check-downloaded: lm items", zap.Int("count", len(items)), zap.String("body", string(body)))
 
 			searchName := strings.ToLower(modelName)
-			for _, item := range items {
-				for _, key := range []string{"name", "filename", "model_name", "title", "file_name", "modelName", "fileName"} {
-					if val, ok := item[key].(string); ok {
-						if strings.Contains(strings.ToLower(val), searchName) {
-							logger.Log.Debug("check-downloaded: matched", zap.String("key", key), zap.String("val", val))
-							return true, item
+			for _, params := range queryVariants {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				base, _ := url.Parse(baseURL + "/api/lm/" + t + "/list")
+				if base == nil {
+					continue
+				}
+				base.RawQuery = params.Encode()
+
+				req, _ := http.NewRequestWithContext(ctx, "GET", base.String(), nil)
+				resp, err := httpClient.Do(req)
+				if err != nil {
+					continue
+				}
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					continue
+				}
+
+				items := parseLmListResponse(body)
+				for _, item := range items {
+					for _, key := range []string{"name", "filename", "model_name", "title", "file_name", "modelName", "fileName"} {
+						if val, ok := item[key].(string); ok {
+							if strings.Contains(strings.ToLower(val), searchName) {
+								select {
+								case result <- item:
+								default:
+								}
+								return
+							}
 						}
 					}
 				}
 			}
-		}
+		}(t)
 	}
 
+	go func() {
+		wg.Wait()
+		close(result)
+	}()
+
+	if item, ok := <-result; ok {
+		return true, item
+	}
 	return false, nil
 }
 
@@ -476,92 +532,106 @@ func checkLoraManagerByVersionID(baseURL, modelVersionID string) (bool, map[stri
 		return false, nil
 	}
 
-	for _, t := range []string{"loras", "checkpoints", "embeddings", "hypernetworks"} {
-		base, err := url.Parse(baseURL + "/api/lm/" + t + "/list?page_size=100")
-		if err != nil {
-			continue
-		}
+	types := []string{"loras", "checkpoints", "embeddings", "hypernetworks"}
+	result := make(chan struct {
+		item map[string]interface{}
+	}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-		logger.Log.Debug("check-downloaded: lm search by version id", zap.String("url", base.String()), zap.Int("target", targetID))
+	var wg sync.WaitGroup
+	for _, t := range types {
+		wg.Add(1)
+		go func(t string) {
+			defer wg.Done()
 
-		resp, err := http.Get(base.String())
-		if err != nil {
-			continue
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			continue
-		}
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 
-		items := parseLmListResponse(body)
-		logger.Log.Debug("check-downloaded: lm version-id search", zap.String("type", t), zap.Int("items", len(items)))
+			base, _ := url.Parse(baseURL + "/api/lm/" + t + "/list?page_size=100")
+			if base == nil {
+				return
+			}
 
-		for _, item := range items {
-			if civitai, ok := item["civitai"].(map[string]interface{}); ok {
-				if id, ok := civitai["id"].(float64); ok && int(id) == targetID {
-					logger.Log.Debug("check-downloaded: matched by civitai.id", zap.Int("id", targetID))
-					return true, item
-				}
-				if idStr, ok := civitai["id"].(string); ok {
-					if parsed, err := strconv.Atoi(idStr); err == nil && parsed == targetID {
-						logger.Log.Debug("check-downloaded: matched by civitai.id (string)", zap.Int("id", targetID))
-						return true, item
+			req, _ := http.NewRequestWithContext(ctx, "GET", base.String(), nil)
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				return
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return
+			}
+
+			items := parseLmListResponse(body)
+			for _, item := range items {
+				if civitai, ok := item["civitai"].(map[string]interface{}); ok {
+					if id, ok := civitai["id"].(float64); ok && int(id) == targetID {
+						select {
+						case result <- struct{ item map[string]interface{} }{item}:
+						default:
+						}
+						return
+					}
+					if idStr, ok := civitai["id"].(string); ok {
+						if parsed, err := strconv.Atoi(idStr); err == nil && parsed == targetID {
+							select {
+							case result <- struct{ item map[string]interface{} }{item}:
+							default:
+							}
+							return
+						}
 					}
 				}
 			}
-		}
+		}(t)
+	}
+
+	go func() {
+		wg.Wait()
+		close(result)
+	}()
+
+	if r, ok := <-result; ok {
+		return true, r.item
 	}
 	return false, nil
 }
 
 func parseLmListResponse(body []byte) []map[string]interface{} {
-	// format 1: { "items": [...] }
-	var withItems struct {
-		Items []map[string]interface{} `json:"items"`
-	}
-	if json.Unmarshal(body, &withItems) == nil && len(withItems.Items) > 0 {
-		return withItems.Items
+	body = bytes.TrimLeft(body, " \t\r\n")
+	if len(body) == 0 {
+		return nil
 	}
 
-	// format 2: { "data": [...] }
-	var withData struct {
-		Data []map[string]interface{} `json:"data"`
-	}
-	if json.Unmarshal(body, &withData) == nil && len(withData.Data) > 0 {
-		return withData.Data
-	}
-
-	// format 3: [...] (direct array)
-	var arr []map[string]interface{}
-	if json.Unmarshal(body, &arr) == nil && len(arr) > 0 {
-		return arr
-	}
-
-	// format 4: { "models": [...] }
-	var obj map[string]interface{}
-	if json.Unmarshal(body, &obj) == nil {
-		if list, ok := obj["models"].([]interface{}); ok {
-			var result []map[string]interface{}
-			for _, m := range list {
-				if mm, ok := m.(map[string]interface{}); ok {
-					result = append(result, mm)
-				}
-			}
-			if len(result) > 0 {
-				return result
-			}
+	// Direct array: [...]
+	if body[0] == '[' {
+		var arr []map[string]interface{}
+		if json.Unmarshal(body, &arr) == nil {
+			return arr
 		}
-		// format 5: { "results": [...] }
-		if list, ok := obj["results"].([]interface{}); ok {
-			var result []map[string]interface{}
-			for _, m := range list {
-				if mm, ok := m.(map[string]interface{}); ok {
-					result = append(result, mm)
-				}
-			}
-			if len(result) > 0 {
-				return result
+		return nil
+	}
+
+	// Object: {...}
+	if body[0] != '{' {
+		return nil
+	}
+
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(body, &obj) != nil {
+		return nil
+	}
+
+	for _, key := range []string{"items", "data", "models", "results"} {
+		if raw, ok := obj[key]; ok {
+			var items []map[string]interface{}
+			if json.Unmarshal(raw, &items) == nil && len(items) > 0 {
+				return items
 			}
 		}
 	}

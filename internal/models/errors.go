@@ -1,8 +1,10 @@
 package models
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 )
@@ -19,7 +21,6 @@ const (
 	ErrCodeDownloadIncomplete ErrorCode = "DOWNLOAD_INCOMPLETE"
 	ErrCodeServerError        ErrorCode = "SERVER_ERROR"
 	ErrCodeInvalidRequest     ErrorCode = "INVALID_REQUEST"
-	ErrCodeCanceled           ErrorCode = "CANCELED"
 )
 
 type APIError struct {
@@ -32,10 +33,6 @@ type APIError struct {
 
 func (e *APIError) Error() string {
 	return fmt.Sprintf("[%s] %s", e.Code, e.Message)
-}
-
-func (e *APIError) Unwrap() error {
-	return errors.New(e.Message)
 }
 
 func NewAPIError(code ErrorCode, message string, statusCode int, retryable bool) *APIError {
@@ -114,19 +111,19 @@ func IsRetryable(err error) bool {
 	return false
 }
 
-func GetErrorCode(err error) ErrorCode {
-	var apiErr *APIError
-	if errors.As(err, &apiErr) {
-		return apiErr.Code
-	}
-	return ErrCodeNetwork
-}
-
 func IsNetworkError(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := strings.ToLower(err.Error())
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	// Fallback: check error message for wrapped API errors
+	msg := err.Error()
 	return strings.Contains(msg, "connection") ||
 		strings.Contains(msg, "timeout") ||
 		strings.Contains(msg, "refused") ||
@@ -138,6 +135,9 @@ func IsDownloadCanceled(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(err.Error(), "canceled") ||
-		strings.Contains(err.Error(), "context canceled")
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "canceled") || strings.Contains(msg, "context canceled")
 }

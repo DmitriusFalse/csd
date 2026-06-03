@@ -176,10 +176,9 @@ func TestRoundTripPreservesAllFields(t *testing.T) {
 		APIKey: "secret-key-12345",
 		RootPath: "/data/models",
 		Queue: QueueConfig{
-			MaxConcurrent:    5,
-			RetryAttempts:    7,
-			RetryDelaySec:    120,
-			RateLimitDelayMs: 500,
+			MaxConcurrent: 5,
+			RetryAttempts: 7,
+			RetryDelaySec: 120,
 		},
 		LoraMgr: LoraManager{
 			Enabled:       true,
@@ -227,7 +226,6 @@ func TestRoundTripPreservesAllFields(t *testing.T) {
 	if loaded.Queue.MaxConcurrent != 5 { t.Errorf("Queue.MaxConcurrent") }
 	if loaded.Queue.RetryAttempts != 7 { t.Errorf("Queue.RetryAttempts") }
 	if loaded.Queue.RetryDelaySec != 120 { t.Errorf("Queue.RetryDelaySec") }
-	if loaded.Queue.RateLimitDelayMs != 500 { t.Errorf("Queue.RateLimitDelayMs") }
 	if loaded.LoraMgr.Enabled != true { t.Errorf("LoraMgr.Enabled") }
 	if loaded.LoraMgr.BaseURL != "http://localhost:8188" { t.Errorf("LoraMgr.BaseURL") }
 	if loaded.LoraMgr.WebhookURL != "http://test:9999/webhook" { t.Errorf("LoraMgr.WebhookURL") }

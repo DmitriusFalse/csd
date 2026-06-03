@@ -33,13 +33,12 @@ func (m *mockCivitaiClient) FetchModelInfo(modelVersionID int, apiKey string) (*
 
 func managerTestConfig(t *testing.T) *config.Config {
 	t.Helper()
-	os.Remove("queue.json")
 	return &config.Config{
 		Server: config.ServerConfig{Port: 8765, Host: "127.0.0.1"},
 		APIKey: "test-key",
 		RootPath: t.TempDir(),
 		Queue: config.QueueConfig{
-			MaxConcurrent: 2, RetryAttempts: 1, RetryDelaySec: 1, RateLimitDelayMs: 100,
+			MaxConcurrent: 2, RetryAttempts: 1, RetryDelaySec: 1,
 		},
 		LoraMgr: config.LoraManager{Enabled: false},
 		Metadata: config.MetadataConfig{SaveJSON: false},

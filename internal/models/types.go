@@ -16,7 +16,6 @@ const (
 type DownloadStatus string
 
 const (
-	StatusPending     DownloadStatus = "pending"
 	StatusDownloading DownloadStatus = "downloading"
 	StatusPaused      DownloadStatus = "paused"
 	StatusCompleted   DownloadStatus = "completed"

@@ -22,10 +22,15 @@ import (
 	"go.uber.org/zap"
 )
 
+type cancelToken struct {
+	cancel context.CancelFunc
+}
+
 type Manager struct {
 	mu            sync.RWMutex
 	tasks         map[string]*models.DownloadTask
-	taskCancels   map[string]context.CancelFunc
+	taskCancels   map[string]*cancelToken
+	taskDone      map[string]chan struct{}
 	active        int
 	maxConcurrent int
 	queue         []*models.DownloadTask
@@ -37,13 +42,15 @@ type Manager struct {
 	webhookURL    string
 	webhookMethod string
 	onUpdate      func(active int, queued int)
+	wg            sync.WaitGroup
 }
 
 func NewManager(cfg *config.Config, civitaiClient api.ModelInfoFetcher) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
 		tasks:         make(map[string]*models.DownloadTask),
-		taskCancels:   make(map[string]context.CancelFunc),
+		taskCancels:   make(map[string]*cancelToken),
+		taskDone:      make(map[string]chan struct{}),
 		maxConcurrent: cfg.Queue.MaxConcurrent,
 		cfg:           cfg,
 		downloader:    New(),
@@ -89,7 +96,8 @@ func resolveLmRootPath(baseURL, modelType string) (string, error) {
 		return "", fmt.Errorf("unsupported type or empty base url")
 	}
 	apiURL := fmt.Sprintf("%s/api/lm/%s/roots", strings.TrimRight(baseURL, "/"), lmType)
-	resp, err := http.Get(apiURL)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(apiURL)
 	if err != nil {
 		return "", err
 	}
@@ -138,6 +146,7 @@ func (m *Manager) AddTask(req models.DownloadRequest) (*models.DownloadTask, err
 
 	modelType := req.ModelType
 	baseModel := req.BaseModel
+	var modelNsfw bool
 
 	if modelType == "" || baseModel == "" {
 		apiKey := req.APIKey
@@ -171,6 +180,7 @@ func (m *Manager) AddTask(req models.DownloadRequest) (*models.DownloadTask, err
 			if len(info.Files) > 0 {
 				task.FileSizeBytes = int64(info.Files[0].SizeKB * 1024)
 			}
+			modelNsfw = info.Nsfw
 		}
 	}
 
@@ -188,7 +198,8 @@ func (m *Manager) AddTask(req models.DownloadRequest) (*models.DownloadTask, err
 			logger.Log.Debug("LM root path failed, using config", zap.Error(err))
 		}
 	}
-	savePath := config.GetSavePath(root, task.ModelType, task.BaseModel, false, m.cfg.NSFW.FolderSuffix)
+	useNsfwFolder := modelNsfw && m.cfg.NSFW.SeparateFolder
+	savePath := config.GetSavePath(root, task.ModelType, task.BaseModel, useNsfwFolder, m.cfg.NSFW.FolderSuffix)
 	if task.FileName == "" {
 		task.FileName = fmt.Sprintf("model_%d.safetensors", task.ModelVersionID)
 	}
@@ -197,6 +208,7 @@ func (m *Manager) AddTask(req models.DownloadRequest) (*models.DownloadTask, err
 	m.tasks[task.ID] = task
 
 	if m.active < m.maxConcurrent {
+		m.wg.Add(1)
 		go m.startTask(task)
 	} else {
 		m.queue = append(m.queue, task)
@@ -212,6 +224,7 @@ func (m *Manager) AddTask(req models.DownloadRequest) (*models.DownloadTask, err
 }
 
 func (m *Manager) startTask(task *models.DownloadTask) {
+	defer m.wg.Done()
 	m.mu.Lock()
 	if task.Status != models.StatusQueued && task.Status != models.StatusPaused {
 		m.mu.Unlock()
@@ -234,9 +247,13 @@ func (m *Manager) startTask(task *models.DownloadTask) {
 	)
 
 	dlCtx, dlCancel := context.WithCancel(m.ctx)
+	token := &cancelToken{cancel: dlCancel}
+	done := make(chan struct{})
 	m.mu.Lock()
-	m.taskCancels[task.ID] = dlCancel
+	m.taskCancels[task.ID] = token
+	m.taskDone[task.ID] = done
 	m.mu.Unlock()
+	defer close(done)
 
 	for attempt <= maxAttempts {
 		err := m.downloader.Download(dlCtx, task, func(downloaded, total int64) {
@@ -249,12 +266,18 @@ func (m *Manager) startTask(task *models.DownloadTask) {
 
 		if models.IsDownloadCanceled(err) {
 			m.mu.Lock()
-			if task.Status != models.StatusFailed {
+			// Only handle if WE are still the active goroutine for this task
+			if t, exists := m.taskCancels[task.ID]; !exists || t != token {
+				m.mu.Unlock()
+				logger.Log.Debug("Download goroutine superseded, skipping", zap.String("id", task.ID))
+				return
+			}
+			if task.Status == models.StatusDownloading {
 				task.Status = models.StatusPaused
 				task.Error = "canceled"
+				m.active--
+				m.downloader.RemoveTempFile(task)
 			}
-			m.downloader.RemoveTempFile(task)
-			m.active--
 			m.saveQueue()
 			delete(m.taskCancels, task.ID)
 			m.mu.Unlock()
@@ -290,6 +313,7 @@ func (m *Manager) startTask(task *models.DownloadTask) {
 				task.Error = "shutdown"
 				m.active--
 				m.saveQueue()
+				delete(m.taskCancels, task.ID)
 				m.mu.Unlock()
 				return
 			}
@@ -339,6 +363,7 @@ func (m *Manager) startTask(task *models.DownloadTask) {
 		m.fireWebhook(task)
 	}
 
+	delete(m.taskCancels, task.ID)
 	m.saveQueue()
 	m.processQueue()
 	m.mu.Unlock()
@@ -349,29 +374,40 @@ func (m *Manager) processQueue() {
 	for m.active < m.maxConcurrent && len(m.queue) > 0 {
 		next := m.queue[0]
 		m.queue = m.queue[1:]
+		m.wg.Add(1)
 		go m.startTask(next)
 	}
 }
 
 func (m *Manager) PauseTask(id string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	task, ok := m.tasks[id]
 	if !ok {
+		m.mu.Unlock()
 		return fmt.Errorf("task not found: %s", id)
 	}
 
-	if task.Status == models.StatusDownloading {
-		task.Status = models.StatusPaused
-		m.active--
-		m.saveQueue()
-		m.processQueue()
-		m.notifyUpdate()
-		return nil
+	if task.Status != models.StatusDownloading {
+		m.mu.Unlock()
+		return fmt.Errorf("task %s is not active", id)
 	}
 
-	return fmt.Errorf("task %s is not active", id)
+	task.Status = models.StatusPaused
+	m.active--
+
+	if tok, exists := m.taskCancels[id]; exists {
+		tok.cancel()
+		delete(m.taskCancels, id)
+	}
+	_ = m.taskDone[id]
+
+	m.saveQueue()
+	m.processQueue()
+	m.mu.Unlock()
+
+	m.notifyUpdate()
+	return nil
 }
 
 func (m *Manager) ResumeTask(id string) error {
@@ -386,6 +422,7 @@ func (m *Manager) ResumeTask(id string) error {
 	if task.Status == models.StatusPaused {
 		task.Status = models.StatusQueued
 		if m.active < m.maxConcurrent {
+			m.wg.Add(1)
 			go m.startTask(task)
 		} else {
 			m.queue = append(m.queue, task)
@@ -411,8 +448,8 @@ func (m *Manager) CancelTask(id string) error {
 		m.active--
 	}
 
-	if cancel, exists := m.taskCancels[id]; exists {
-		cancel()
+	if tok, exists := m.taskCancels[id]; exists {
+		tok.cancel()
 		delete(m.taskCancels, id)
 	}
 
@@ -420,18 +457,12 @@ func (m *Manager) CancelTask(id string) error {
 	task.Status = models.StatusFailed
 	task.Error = "cancelled"
 
-	// Retry file removal a few times in case download goroutine still holds the handle
-	for i := 0; i < 5; i++ {
-		if err := os.Remove(task.TempPath); err == nil {
-			break
-		}
-		if i < 4 {
-			time.Sleep(200 * time.Millisecond)
-		}
-	}
-
 	m.saveQueue()
 	m.mu.Unlock()
+
+	if task.TempPath != "" {
+		os.Remove(task.TempPath)
+	}
 
 	if oldStatus == models.StatusDownloading {
 		m.mu.Lock()
@@ -439,6 +470,8 @@ func (m *Manager) CancelTask(id string) error {
 		m.mu.Unlock()
 	}
 	m.notifyUpdate()
+
+	logger.Log.Info("Task cancelled", zap.String("id", id))
 	return nil
 }
 
@@ -465,6 +498,7 @@ func (m *Manager) ResumeAll() {
 		if task.Status == models.StatusPaused {
 			task.Status = models.StatusQueued
 			if m.active < m.maxConcurrent {
+				m.wg.Add(1)
 				go m.startTask(task)
 			} else {
 				m.queue = append(m.queue, task)
@@ -529,7 +563,9 @@ func (m *Manager) fireWebhook(task *models.DownloadTask) {
 		return
 	}
 
+	m.wg.Add(1)
 	go func() {
+		defer m.wg.Done()
 		for attempt := 0; attempt < 3; attempt++ {
 			if err := metadata.SendWebhook(m.webhookURL, m.webhookMethod, task); err != nil {
 				logger.Log.Warn("Webhook failed",
@@ -590,23 +626,29 @@ func (m *Manager) saveQueue() {
 		return
 	}
 
-	if err := os.WriteFile("queue.json", data, 0644); err != nil {
-		logger.Log.Error("Failed to save queue", zap.Error(err))
+	queuePath := m.queuePath()
+	if err := os.WriteFile(queuePath, data, 0644); err != nil {
+		logger.Log.Error("Failed to save queue", zap.String("path", queuePath), zap.Error(err))
 	}
 }
 
+func (m *Manager) queuePath() string {
+	return filepath.Join(m.cfg.RootPath, "queue.json")
+}
+
 func (m *Manager) restoreQueue() {
-	data, err := os.ReadFile("queue.json")
+	queuePath := m.queuePath()
+	data, err := os.ReadFile(queuePath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			logger.Log.Warn("Failed to read queue.json", zap.Error(err))
+			logger.Log.Warn("Failed to read queue", zap.String("path", queuePath), zap.Error(err))
 		}
 		return
 	}
 
 	var state models.QueueState
 	if err := json.Unmarshal(data, &state); err != nil {
-		logger.Log.Warn("Failed to parse queue.json", zap.Error(err))
+		logger.Log.Warn("Failed to parse queue", zap.String("path", queuePath), zap.Error(err))
 		return
 	}
 
@@ -653,8 +695,9 @@ func (m *Manager) restoreQueue() {
 
 func (m *Manager) Shutdown() {
 	m.cancel()
+	m.wg.Wait()
 }
 
 func (m *Manager) DeleteQueueFile() {
-	os.Remove("queue.json")
+	os.Remove(m.queuePath())
 }

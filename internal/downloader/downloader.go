@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,7 +29,14 @@ type Downloader struct {
 func New() *Downloader {
 	return &Downloader{
 		client: &http.Client{
-			Timeout: 0,
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+			},
 		},
 	}
 }
@@ -41,12 +49,15 @@ func (d *Downloader) buildURL(versionID, fileID int, apiKey string) string {
 	return url
 }
 
-func (d *Downloader) getFileSize(url string) (int64, error) {
-	req, err := http.NewRequest("HEAD", url, nil)
+func (d *Downloader) getFileSize(ctx context.Context, url, apiKey string) (int64, error) {
+	req, err := http.NewRequestWithContext(ctx, "HEAD", url, nil)
 	if err != nil {
 		return 0, err
 	}
 	req.Header.Set("User-Agent", userAgent)
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 
 	resp, err := d.client.Do(req)
 	if err != nil {
@@ -74,7 +85,7 @@ func (d *Downloader) getFileSize(url string) (int64, error) {
 func (d *Downloader) Download(ctx context.Context, task *models.DownloadTask, onProgress ProgressCallback) error {
 	downloadURL := d.buildURL(task.ModelVersionID, task.FileID, task.APIKey)
 
-	totalBytes, err := d.getFileSize(downloadURL)
+	totalBytes, err := d.getFileSize(ctx, downloadURL, task.APIKey)
 	if err != nil {
 		logger.Log.Debug("HEAD request failed, proceeding without file size", zap.Error(err))
 		totalBytes = 0
@@ -118,6 +129,9 @@ func (d *Downloader) Download(ctx context.Context, task *models.DownloadTask, on
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("User-Agent", userAgent)
+	if task.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+task.APIKey)
+	}
 
 	if resume && downloadedBytes > 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", downloadedBytes))
@@ -155,6 +169,9 @@ func (d *Downloader) Download(ctx context.Context, task *models.DownloadTask, on
 			return fmt.Errorf("create retry request: %w", err)
 		}
 		req.Header.Set("User-Agent", userAgent)
+		if task.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+task.APIKey)
+		}
 		resp, err = d.client.Do(req)
 		if err != nil {
 			return fmt.Errorf("retry download request: %w", err)
@@ -241,6 +258,7 @@ func (d *Downloader) Download(ctx context.Context, task *models.DownloadTask, on
 		)
 	}
 
+	os.Remove(task.SavePath)
 	if err := os.Rename(tempPath, task.SavePath); err != nil {
 		return fmt.Errorf("rename file: %w", err)
 	}
@@ -267,19 +285,6 @@ func (d *Downloader) GetExistingBytes(task *models.DownloadTask) int64 {
 
 func (d *Downloader) RemoveTempFile(task *models.DownloadTask) {
 	os.Remove(task.TempPath)
-}
-
-func FormatFileSize(bytes int64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 func ParseFileSize(text string) (int64, error) {
@@ -309,6 +314,4 @@ func ParseFileSize(text string) (int64, error) {
 	}
 }
 
-func init() {
-	_ = time.Now
-}
+

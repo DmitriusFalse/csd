@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -22,13 +23,22 @@ type ModelInfoFetcher interface {
 
 type CivitaiClient struct {
 	httpClient *http.Client
+	baseURL    string
 }
 
 func NewClient() *CivitaiClient {
 	return &CivitaiClient{
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 60 * time.Second,
 		},
+		baseURL: "https://civitai.com",
+	}
+}
+
+func NewTestClient(serverURL string) *CivitaiClient {
+	return &CivitaiClient{
+		httpClient: &http.Client{},
+		baseURL:    serverURL,
 	}
 }
 
@@ -60,7 +70,7 @@ type tRPCModelVersion struct {
 
 func (c *CivitaiClient) FetchModelInfo(modelVersionID int, apiKey string) (*models.CivitaiModelResponse, error) {
 	inputStr := fmt.Sprintf(`{"json":{"id":%d,"authed":%t}}`, modelVersionID, apiKey != "")
-	url := fmt.Sprintf("https://civitai.com/api/trpc/modelVersion.getById?input=%s", inputStr)
+	url := fmt.Sprintf("%s/api/trpc/modelVersion.getById?input=%s", c.baseURL, url.QueryEscape(inputStr))
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {

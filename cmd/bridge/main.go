@@ -47,8 +47,10 @@ func main() {
 		zap.Bool("headless", headless),
 	)
 
-	if cfg.APIKey != "" {
-		if len(cfg.APIKey) > 20 && cfg.APIKey[:7] == "aes256:" {
+	if cfg.APIKey != "" && len(cfg.APIKey) > 20 && cfg.APIKey[:7] == "aes256:" {
+		if err := crypto.Init(cfgPath); err != nil {
+			logger.Log.Warn("Failed to init crypto, using raw key", zap.Error(err))
+		} else {
 			decrypted, err := crypto.Decrypt(cfg.APIKey[7:])
 			if err != nil {
 				logger.Log.Warn("Failed to decrypt API key, may need re-entry", zap.Error(err))
@@ -92,7 +94,7 @@ func main() {
 		}()
 
 		// Tray MUST run on main goroutine for Windows message pump
-		tray.Run(manager, cfg.RootPath, appVersion, func() {
+		tray.Run(manager, cfg.RootPath, cfgPath, appVersion, func() {
 			shutdownOnce.Do(func() { close(shutdownCh) })
 		})
 

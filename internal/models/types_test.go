@@ -11,7 +11,6 @@ func TestDownloadStatusValues(t *testing.T) {
 		status DownloadStatus
 		want   string
 	}{
-		{StatusPending, "pending"},
 		{StatusDownloading, "downloading"},
 		{StatusPaused, "paused"},
 		{StatusCompleted, "completed"},

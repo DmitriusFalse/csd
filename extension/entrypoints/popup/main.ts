@@ -27,6 +27,7 @@ function formatBytes(bytes: number): string {
 function createTaskCard(task: any): HTMLDivElement {
   const card = document.createElement('div')
   card.className = 'task-card' + (task.status === 'completed' ? ' completed' : '') + (task.status === 'failed' ? ' failed' : '')
+  card.dataset.taskId = task.id
 
   const img = document.createElement('img')
   img.className = 'task-img'
@@ -81,16 +82,37 @@ function createTaskCard(task: any): HTMLDivElement {
   const actions = document.createElement('div')
   actions.className = 'task-actions'
 
-  if (task.status === 'downloading' || task.status === 'queued' || task.status === 'paused') {
+  if (task.status === 'downloading' || task.status === 'paused' || task.status === 'queued') {
+    const port = () => parseInt($<HTMLInputElement>('server-port')?.value || String(DEFAULT_PORT))
+
+    if (task.status === 'downloading') {
+      const pauseBtn = document.createElement('button')
+      pauseBtn.className = 'btn-icon'
+      pauseBtn.textContent = '⏸'
+      pauseBtn.title = t('task-pause')
+      pauseBtn.onclick = async () => {
+        try { await fetch(`http://127.0.0.1:${port()}/queue/${task.id}/pause`, { method: 'POST' }) } catch {}
+      }
+      actions.appendChild(pauseBtn)
+    }
+
+    if (task.status === 'paused') {
+      const resumeBtn = document.createElement('button')
+      resumeBtn.className = 'btn-icon'
+      resumeBtn.textContent = '▶'
+      resumeBtn.title = t('task-resume')
+      resumeBtn.onclick = async () => {
+        try { await fetch(`http://127.0.0.1:${port()}/queue/${task.id}/resume`, { method: 'POST' }) } catch {}
+      }
+      actions.appendChild(resumeBtn)
+    }
+
     const cancelBtn = document.createElement('button')
     cancelBtn.className = 'btn-icon'
     cancelBtn.textContent = '✕'
     cancelBtn.title = t('task-cancel')
     cancelBtn.onclick = async () => {
-      try {
-        const port = parseInt($<HTMLInputElement>('server-port')?.value || String(DEFAULT_PORT))
-        await fetch(`http://127.0.0.1:${port}/queue/${task.id}/cancel`, { method: 'POST' })
-      } catch {}
+      try { await fetch(`http://127.0.0.1:${port()}/queue/${task.id}/cancel`, { method: 'POST' }) } catch {}
     }
     actions.appendChild(cancelBtn)
   }
@@ -99,30 +121,146 @@ function createTaskCard(task: any): HTMLDivElement {
   return card
 }
 
+function updateTaskCard(card: HTMLElement, task: any) {
+  const info = card.querySelector('.task-info')!
+  const meta = info.querySelector('.task-meta') as HTMLElement
+  const oldStatus = card.className.includes('completed') ? 'completed' : card.className.includes('failed') ? 'failed' : ''
+
+  card.className = 'task-card' + (task.status === 'completed' ? ' completed' : '') + (task.status === 'failed' ? ' failed' : '')
+
+  if (task.status === 'downloading') {
+    const bar = info.querySelector('.progress-bar') as HTMLElement
+    const fill = info.querySelector('.progress-fill') as HTMLElement
+    const statusEl = info.querySelector('.task-status') as HTMLElement
+    const downloaded = formatBytes(task.downloadedBytes || 0)
+    const total = formatBytes(task.fileSizeBytes || 0)
+    const pct = Math.min(task.progress || 0, 100)
+
+    if (bar && fill && statusEl) {
+      meta.textContent = `${downloaded} / ${total}`
+      fill.style.width = pct + '%'
+      statusEl.textContent = Math.round(pct) + '%'
+    } else {
+      // Transitioned from another status: rebuild info section
+      info.innerHTML = ''
+      const name = document.createElement('div')
+      name.className = 'task-name'
+      name.textContent = task.modelName || `Model #${task.modelVersionId}`
+      meta.textContent = `${downloaded} / ${total}`
+      info.append(name, meta)
+      const newBar = document.createElement('div')
+      newBar.className = 'progress-bar'
+      const newFill = document.createElement('div')
+      newFill.className = 'progress-fill'
+      newFill.style.width = pct + '%'
+      newBar.appendChild(newFill)
+      info.appendChild(newBar)
+      const newStatus = document.createElement('div')
+      newStatus.className = 'task-status'
+      newStatus.textContent = Math.round(pct) + '%'
+      newStatus.style.color = '#667eea'
+      info.appendChild(newStatus)
+    }
+  } else {
+    // Not downloading — just update meta text
+    if (task.status === 'queued') meta.textContent = t('task-queued')
+    else if (task.status === 'paused') meta.textContent = t('task-paused')
+    else if (task.status === 'completed') meta.textContent = t('task-completed')
+    else if (task.status === 'failed') meta.textContent = task.error || t('task-failed')
+
+    // Remove progress elements if they exist (transitioned from downloading)
+    const bar = info.querySelector('.progress-bar')
+    const statusEl = info.querySelector('.task-status')
+    if (bar) bar.remove()
+    if (statusEl) statusEl.remove()
+  }
+
+  // Rebuild action buttons
+  const actions = card.querySelector('.task-actions') as HTMLElement
+  if (actions) actions.remove()
+  const newActions = document.createElement('div')
+  newActions.className = 'task-actions'
+  if (task.status === 'downloading' || task.status === 'paused' || task.status === 'queued') {
+    const port = () => parseInt($<HTMLInputElement>('server-port')?.value || String(DEFAULT_PORT))
+    if (task.status === 'downloading') {
+      const btn = document.createElement('button')
+      btn.className = 'btn-icon'
+      btn.textContent = '⏸'
+      btn.title = t('task-pause')
+      btn.onclick = async () => { try { await fetch(`http://127.0.0.1:${port()}/queue/${task.id}/pause`, { method: 'POST' }) } catch {} }
+      newActions.appendChild(btn)
+    }
+    if (task.status === 'paused') {
+      const btn = document.createElement('button')
+      btn.className = 'btn-icon'
+      btn.textContent = '▶'
+      btn.title = t('task-resume')
+      btn.onclick = async () => { try { await fetch(`http://127.0.0.1:${port()}/queue/${task.id}/resume`, { method: 'POST' }) } catch {} }
+      newActions.appendChild(btn)
+    }
+    const cancelBtn = document.createElement('button')
+    cancelBtn.className = 'btn-icon'
+    cancelBtn.textContent = '✕'
+    cancelBtn.title = t('task-cancel')
+    cancelBtn.onclick = async () => { try { await fetch(`http://127.0.0.1:${port()}/queue/${task.id}/cancel`, { method: 'POST' }) } catch {} }
+    newActions.appendChild(cancelBtn)
+  }
+  card.appendChild(newActions)
+}
+
 function renderTasks(data: any) {
-  const activeList = $('active-list')
-  const queuedList = $('queued-list')
-  const historyList = $('history-list')
-  const activeEmpty = $('active-empty')
-  const queuedEmpty = $('queued-empty')
-  const historyEmpty = $('history-empty')
-  if (!activeList || !queuedList || !historyList) return
+  const containers: Record<string, HTMLElement | null> = {
+    active: $('active-list'),
+    queued: $('queued-list'),
+    history: $('history-list'),
+  }
+  const empties: Record<string, HTMLElement | null> = {
+    active: $('active-empty'),
+    queued: $('queued-empty'),
+    history: $('history-empty'),
+  }
+  if (!containers.active || !containers.queued || !containers.history) return
 
-  activeList.innerHTML = ''
-  queuedList.innerHTML = ''
-  historyList.innerHTML = ''
+  const seen = new Set<string>()
 
-  const active = data.active || []
-  const queued = data.queued || []
-  const history = data.history || []
+  for (const section of ['active', 'queued', 'history'] as const) {
+    const tasks = data[section] || []
+    const container = containers[section]!
 
-  active.forEach((t: any) => activeList.appendChild(createTaskCard(t)))
-  queued.forEach((t: any) => queuedList.appendChild(createTaskCard(t)))
-  history.forEach((t: any) => historyList.appendChild(createTaskCard(t)))
+    for (const task of tasks) {
+      seen.add(task.id)
+      let card = container.querySelector(`[data-task-id="${task.id}"]`) as HTMLElement
+      if (card) {
+        updateTaskCard(card, task)
+      } else {
+        // Check if card exists in another section (status change moved it)
+        const moved = document.querySelector(`[data-task-id="${task.id}"]`) as HTMLElement
+        if (moved) {
+          moved.remove()
+          container.appendChild(moved)
+          updateTaskCard(moved, task)
+        } else {
+          card = createTaskCard(task)
+          container.appendChild(card)
+        }
+      }
+    }
 
-  if (activeEmpty) activeEmpty.style.display = active.length ? 'none' : ''
-  if (queuedEmpty) queuedEmpty.style.display = queued.length ? 'none' : ''
-  if (historyEmpty) historyEmpty.style.display = history.length ? 'none' : ''
+    // Remove stale cards
+    let child = container.firstElementChild
+    while (child) {
+      const next = child.nextElementSibling
+      const id = (child as HTMLElement).dataset.taskId
+      if (id && !seen.has(id)) {
+        child.remove()
+      }
+      child = next
+    }
+
+    if (empties[section]) {
+      empties[section]!.style.display = tasks.length ? 'none' : ''
+    }
+  }
 }
 
 async function fetchTasks() {
@@ -314,7 +452,7 @@ async function periodicCheck() {
 function startAutoRefresh() {
   if (refreshTimer) return
   periodicCheck()
-  refreshTimer = setInterval(periodicCheck, 5000)
+  refreshTimer = setInterval(periodicCheck, 1000)
 }
 
 function stopAutoRefresh() {

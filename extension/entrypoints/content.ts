@@ -230,7 +230,7 @@ function injectButton(data: NonNullable<ReturnType<typeof extractPageData>>) {
     e.stopPropagation()
 
     if (textSpan.textContent === '✓ Downloaded') {
-      showToast('Эта модель уже скачана', 'success')
+      showToast('Already downloaded', 'success')
       return
     }
 
@@ -261,7 +261,7 @@ function injectButton(data: NonNullable<ReturnType<typeof extractPageData>>) {
       btn.style.pointerEvents = 'auto'
       const msg = err?.message || ''
       if (msg.includes('context') || msg.includes('invalidated')) {
-        showToast('🔄 Расширение обновлено. Перезагрузи страницу и попробуй снова.', 'warning')
+        showToast('🔄 Extension updated. Reload the page and try again.', 'warning')
       }
     }
   })
@@ -346,7 +346,7 @@ function injectCardButtons() {
     btn.onclick = async (e) => {
       e.preventDefault()
       e.stopPropagation()
-      if (downloaded) { showToast('Модель уже скачана', 'success'); return }
+      if (downloaded) { showToast('Already downloaded', 'success'); return }
       btn.style.pointerEvents = 'none'
       btn.innerHTML = '<span style="font-size:12px;">...</span>'
       try {

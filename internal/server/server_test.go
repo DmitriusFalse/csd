@@ -34,7 +34,7 @@ func (m *mockCivitaiClient) FetchModelInfo(modelVersionID int, apiKey string) (*
 
 func newTestServer(t *testing.T, cfg *config.Config) (*Server, *downloader.Manager) {
 	t.Helper()
-	os.Remove("queue.json")
+	os.Remove(filepath.Join(cfg.RootPath, "queue.json"))
 	mock := &mockCivitaiClient{}
 	mgr := downloader.NewManager(cfg, mock)
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
@@ -217,7 +217,13 @@ func TestCancelTaskEndpoint(t *testing.T) {
 	})
 
 	req := httptest.NewRequest("POST", "/queue/"+task.ID+"/cancel", nil)
-	resp, _ := s.app.Test(req)
+	resp, err := s.app.Test(req, 5000)
+	if resp == nil {
+		t.Fatalf("Test() returned nil resp, err=%v", err)
+	}
+	if err != nil {
+		t.Fatalf("Test() error: %v", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}

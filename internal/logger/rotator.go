@@ -94,18 +94,19 @@ func (w *rotatingWriter) compressFile(path string) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
 
 	gzPath := path + ".gz"
 	gzFile, err := os.Create(gzPath)
 	if err != nil {
+		f.Close()
 		return
 	}
-	defer gzFile.Close()
 
 	gzWriter := gzip.NewWriter(gzFile)
 	_, _ = io.Copy(gzWriter, f)
 	_ = gzWriter.Close()
+	gzFile.Close()
+	f.Close()
 
 	_ = os.Remove(path)
 }
