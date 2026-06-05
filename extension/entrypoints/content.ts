@@ -244,6 +244,7 @@ function injectButton(data: NonNullable<ReturnType<typeof extractPageData>>) {
           modelVersionId: parseInt(data.modelVersionId),
           fileId: parseInt(data.fileId),
           modelName: data.modelName,
+          modelType: data.modelType,
           fileSize: data.fileSize,
           previewImage: data.previewImage,
         },

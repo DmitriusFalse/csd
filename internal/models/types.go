@@ -95,6 +95,22 @@ type CivitaiPreviewImage struct {
 	Type string `json:"type"`
 }
 
+type CivitaiModelVersionDetail struct {
+	ID        int           `json:"id"`
+	Name      string        `json:"name"`
+	BaseModel string        `json:"baseModel"`
+	Files     []CivitaiFile `json:"files"`
+}
+
+type CivitaiModelDetailResponse struct {
+	ID            int                       `json:"id"`
+	Name          string                    `json:"name"`
+	Type          string                    `json:"type"`
+	Nsfw          bool                      `json:"nsfw"`
+	Tags          []CivitaiTag              `json:"tags"`
+	ModelVersions []CivitaiModelVersionDetail `json:"modelVersions"`
+}
+
 type CivitaiModelResponse struct {
 	ID            int                  `json:"id"`
 	Name          string               `json:"name"`

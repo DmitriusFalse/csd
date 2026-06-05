@@ -31,6 +31,10 @@ func (m *mockCivitaiClient) FetchModelInfo(modelVersionID int, apiKey string) (*
 	}, nil
 }
 
+func (m *mockCivitaiClient) FetchModelByID(modelID int, apiKey string) (*models.CivitaiModelDetailResponse, error) {
+	return nil, nil
+}
+
 func managerTestConfig(t *testing.T) *config.Config {
 	t.Helper()
 	return &config.Config{

@@ -90,6 +90,39 @@ func civitaiTypeToLmType(modelType string) string {
 	}
 }
 
+func parseLmRootsResponse(body []byte, lmType string) ([]string, error) {
+	// Try direct array first
+	var roots []string
+	if err := json.Unmarshal(body, &roots); err == nil {
+		return roots, nil
+	}
+
+	// Try object with type key or common wrappers
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(body, &obj); err != nil {
+		return nil, fmt.Errorf("lm roots: expected array or object, got neither")
+	}
+
+	for _, key := range []string{lmType, "paths", "roots", "data", "items", "result"} {
+		if raw, ok := obj[key]; ok {
+			var arr []string
+			if json.Unmarshal(raw, &arr) == nil && len(arr) > 0 {
+				return arr, nil
+			}
+		}
+	}
+
+	// Fallback: collect all string arrays from the object
+	for _, raw := range obj {
+		var arr []string
+		if json.Unmarshal(raw, &arr) == nil && len(arr) > 0 {
+			return arr, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no roots found for type %s", lmType)
+}
+
 func resolveLmRootPath(baseURL, modelType string) (string, error) {
 	lmType := civitaiTypeToLmType(modelType)
 	if lmType == "" || baseURL == "" {
@@ -106,13 +139,14 @@ func resolveLmRootPath(baseURL, modelType string) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("lm returned %d", resp.StatusCode)
 	}
-	var roots []string
-	if err := json.Unmarshal(body, &roots); err != nil {
+	roots, err := parseLmRootsResponse(body, lmType)
+	if err != nil {
 		return "", err
 	}
 	if len(roots) == 0 {
 		return "", fmt.Errorf("no roots for type %s", lmType)
 	}
+	logger.Log.Debug("resolved LM root path", zap.String("path", roots[0]), zap.String("type", lmType))
 	return roots[0], nil
 }
 
@@ -163,7 +197,11 @@ func (m *Manager) AddTask(req models.DownloadRequest) (*models.DownloadTask, err
 				)
 				return nil, err
 			}
-			logger.Log.Warn("Failed to fetch model info, using provided values", zap.Error(err))
+			logger.Log.Warn("Failed to fetch model info, using provided values",
+				zap.Error(err),
+				zap.String("modelType", modelType),
+				zap.String("baseModel", baseModel),
+			)
 		} else {
 			if modelType == "" {
 				modelType = info.Type
@@ -188,21 +226,43 @@ func (m *Manager) AddTask(req models.DownloadRequest) (*models.DownloadTask, err
 	task.BaseModel = baseModel
 
 	root := m.cfg.RootPath
+	useLmRoot := false
 	if req.SavePath != "" {
 		root = req.SavePath
 	} else if m.cfg.LoraMgr.UseLmPath && m.cfg.LoraMgr.BaseURL != "" && modelType != "" {
 		if lmPath, err := resolveLmRootPath(m.cfg.LoraMgr.BaseURL, modelType); err == nil && lmPath != "" {
 			root = lmPath
+			useLmRoot = true
 			logger.Log.Debug("using LM root path", zap.String("path", lmPath))
 		} else {
-			logger.Log.Debug("LM root path failed, using config", zap.Error(err))
+			logger.Log.Warn("LM root path failed, falling back to config root", zap.Error(err))
 		}
 	}
 	useNsfwFolder := modelNsfw && m.cfg.NSFW.SeparateFolder
-	savePath := config.GetSavePath(root, task.ModelType, task.BaseModel, useNsfwFolder, m.cfg.NSFW.FolderSuffix)
+
+	var savePath string
+	if useLmRoot {
+		// LM root already includes the type folder, add base model subfolder only
+		savePath = root
+		if task.BaseModel != "" {
+			baseFolder := config.ResolveBaseModelFolder(task.BaseModel)
+			if baseFolder != "" {
+				savePath = filepath.Join(root, baseFolder)
+			}
+		}
+		if useNsfwFolder {
+			suffix := strings.TrimSpace(m.cfg.NSFW.FolderSuffix)
+			if suffix != "" {
+				savePath += filepath.Clean(suffix)
+			}
+		}
+	} else {
+		savePath = config.GetSavePath(root, task.ModelType, task.BaseModel, useNsfwFolder, m.cfg.NSFW.FolderSuffix)
+	}
 	if task.FileName == "" {
 		task.FileName = fmt.Sprintf("model_%d.safetensors", task.ModelVersionID)
 	}
+	task.FileName = config.SanitizeFileName(task.FileName)
 	task.SavePath = filepath.Join(savePath, task.FileName)
 
 	m.tasks[task.ID] = task
@@ -237,6 +297,9 @@ func (m *Manager) startTask(task *models.DownloadTask) {
 	m.active++
 	attempt := 1
 	maxAttempts := m.cfg.Queue.RetryAttempts
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
 	retryDelay := m.cfg.Queue.RetryDelaySec
 	m.mu.Unlock()
 
@@ -479,10 +542,14 @@ func (m *Manager) PauseAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for _, task := range m.tasks {
+	for id, task := range m.tasks {
 		if task.Status == models.StatusDownloading {
 			task.Status = models.StatusPaused
 			m.active--
+			if tok, exists := m.taskCancels[id]; exists {
+				tok.cancel()
+				delete(m.taskCancels, id)
+			}
 		}
 	}
 	m.queue = nil
@@ -573,7 +640,11 @@ func (m *Manager) fireWebhook(task *models.DownloadTask) {
 					zap.Int("attempt", attempt+1),
 					zap.Error(err),
 				)
-				time.Sleep(30 * time.Second)
+				select {
+				case <-time.After(30 * time.Second):
+				case <-m.ctx.Done():
+					return
+				}
 				continue
 			}
 			logger.Log.Info("Webhook sent successfully",

@@ -22,7 +22,7 @@ import (
 	"github.com/DmitriusFalse/csd/internal/logger"
 	"github.com/DmitriusFalse/csd/internal/models"
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
+
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"go.uber.org/zap"
 )
@@ -62,10 +62,6 @@ func New(host string, port int, manager *downloader.Manager, configPath, logPath
 		cfg:        cfg,
 	}
 
-	s.app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowMethods: "GET,POST,PUT,DELETE",
-	}))
 	s.app.Use(recover.New())
 
 	s.setupRoutes()
@@ -279,7 +275,7 @@ func (s *Server) handleCheckDownloaded(c *fiber.Ctx) error {
 	name := c.Query("name")
 	modelType := c.Query("type")
 	modelVersionID := c.Query("modelVersionId")
-	fileID := c.Query("fileId")
+	modelID := c.Query("modelId")
 	if name == "" || modelType == "" {
 		return jsonError(c, http.StatusBadRequest, models.NewAPIError(
 			models.ErrCodeInvalidRequest, "name and type params required", 400, false,
@@ -297,7 +293,7 @@ func (s *Server) handleCheckDownloaded(c *fiber.Ctx) error {
 		zap.String("name", name),
 		zap.String("type", modelType),
 		zap.String("modelVersionId", modelVersionID),
-		zap.String("fileId", fileID),
+		zap.String("modelId", modelID),
 		zap.String("lm_base_url", cfg.LoraMgr.BaseURL),
 	)
 
@@ -311,12 +307,20 @@ func (s *Server) handleCheckDownloaded(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"downloaded": false})
 	}
 
-	// Without modelVersionId, fall back to name-based search
-	found, item := checkLoraManager(cfg.LoraMgr.BaseURL, modelType, name)
-	logger.Log.Debug("check-downloaded result", zap.Bool("found", found), zap.String("type", modelType))
-	if found {
-		return c.JSON(fiber.Map{"downloaded": true, "source": "lm", "item": item})
+	// Search by modelId: fetch versions from Civitai, check each against LM
+	if modelID != "" {
+		parsedID, err := strconv.Atoi(modelID)
+		if err == nil && parsedID > 0 {
+			found, item := s.checkLoraManagerByModelID(cfg.LoraMgr.BaseURL, parsedID, cfg.APIKey)
+			if found {
+				logger.Log.Debug("check-downloaded: matched by modelId")
+				return c.JSON(fiber.Map{"downloaded": true, "source": "lm", "item": item})
+			}
+			return c.JSON(fiber.Map{"downloaded": false})
+		}
 	}
+
+	// No modelVersionId or modelId — cannot perform precise check
 	return c.JSON(fiber.Map{"downloaded": false})
 }
 
@@ -406,7 +410,7 @@ func (s *Server) handleDownloadByModelID(c *fiber.Ctx) error {
 		ModelVersionID: latestVer.ID,
 		FileID:         firstFile.ID,
 		ModelName:      modelName,
-		ModelType:      modelInfo.Type,
+		ModelType:      modelInfo.Type, // from Civitai API; req.ModelType is ignored (badge text may differ from API)
 		FileName:       firstFile.Name,
 		FileSize:       fmt.Sprintf("%.0f KB", firstFile.SizeKB),
 		PreviewImage:   req.PreviewImage,
@@ -443,83 +447,6 @@ func (s *Server) handleCheckLMHealth(c *fiber.Ctx) error {
 		"status":    resp.StatusCode,
 		"body_preview": string(body)[:min(len(string(body)), 200)],
 	})
-}
-
-func checkLoraManager(baseURL, modelType, modelName string) (bool, map[string]interface{}) {
-	if baseURL == "" {
-		return false, nil
-	}
-
-	types := civitaiToLmTypes(modelType)
-	result := make(chan map[string]interface{}, 1)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	var wg sync.WaitGroup
-	for _, t := range types {
-		wg.Add(1)
-		go func(t string) {
-			defer wg.Done()
-
-			queryVariants := []url.Values{
-				{"search": {modelName}, "fuzzy": {"true"}, "search_filename": {"true"}, "page_size": {"20"}},
-				{"search": {modelName}, "page_size": {"20"}},
-				{"search_modelname": {modelName}, "page_size": {"20"}},
-				{"search_filename": {modelName}, "page_size": {"20"}},
-			}
-
-			searchName := strings.ToLower(modelName)
-			for _, params := range queryVariants {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-
-				base, _ := url.Parse(baseURL + "/api/lm/" + t + "/list")
-				if base == nil {
-					continue
-				}
-				base.RawQuery = params.Encode()
-
-				req, _ := http.NewRequestWithContext(ctx, "GET", base.String(), nil)
-				resp, err := httpClient.Do(req)
-				if err != nil {
-					continue
-				}
-				body, _ := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				if resp.StatusCode != http.StatusOK {
-					continue
-				}
-
-				items := parseLmListResponse(body)
-				for _, item := range items {
-					for _, key := range []string{"name", "filename", "model_name", "title", "file_name", "modelName", "fileName"} {
-						if val, ok := item[key].(string); ok {
-							if strings.Contains(strings.ToLower(val), searchName) {
-								select {
-								case result <- item:
-								default:
-								}
-								return
-							}
-						}
-					}
-				}
-			}
-		}(t)
-	}
-
-	go func() {
-		wg.Wait()
-		close(result)
-	}()
-
-	if item, ok := <-result; ok {
-		return true, item
-	}
-	return false, nil
 }
 
 func checkLoraManagerByVersionID(baseURL, modelVersionID string) (bool, map[string]interface{}) {
@@ -589,6 +516,63 @@ func checkLoraManagerByVersionID(baseURL, modelVersionID string) (bool, map[stri
 				}
 			}
 		}(t)
+	}
+
+	go func() {
+		wg.Wait()
+		close(result)
+	}()
+
+	if r, ok := <-result; ok {
+		return true, r.item
+	}
+	return false, nil
+}
+
+func (s *Server) checkLoraManagerByModelID(baseURL string, modelID int, apiKey string) (bool, map[string]interface{}) {
+	if baseURL == "" {
+		return false, nil
+	}
+
+	modelInfo, err := s.civitai.FetchModelByID(modelID, apiKey)
+	if err != nil {
+		logger.Log.Warn("checkLoraManagerByModelID: failed to fetch model info",
+			zap.Int("modelID", modelID),
+			zap.Error(err),
+		)
+		return false, nil
+	}
+	if modelInfo == nil || len(modelInfo.ModelVersions) == 0 {
+		return false, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	result := make(chan struct {
+		item map[string]interface{}
+	}, 1)
+
+	var wg sync.WaitGroup
+	for _, v := range modelInfo.ModelVersions {
+		vID := strconv.Itoa(v.ID)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			found, item := checkLoraManagerByVersionID(baseURL, vID)
+			if found {
+				select {
+				case result <- struct{ item map[string]interface{} }{item}:
+				default:
+				}
+			}
+		}()
 	}
 
 	go func() {

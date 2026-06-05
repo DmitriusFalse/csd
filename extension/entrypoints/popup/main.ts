@@ -4,6 +4,7 @@ const DEFAULT_PORT = 8765
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let configOpen = false
 let helpOpen = false
+let historyOpen = false
 
 function $<T = HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null
@@ -24,10 +25,26 @@ function formatBytes(bytes: number): string {
   return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i]
 }
 
-function createTaskCard(task: any): HTMLDivElement {
+function formatDate(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const locale = getLang() === 'ru' ? 'ru-RU' : 'en-US'
+  return d.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function createTaskCard(task: any, index?: number): HTMLDivElement {
   const card = document.createElement('div')
   card.className = 'task-card' + (task.status === 'completed' ? ' completed' : '') + (task.status === 'failed' ? ' failed' : '')
   card.dataset.taskId = task.id
+
+  const contents: HTMLElement[] = []
+
+  if (index !== undefined) {
+    const num = document.createElement('span')
+    num.className = 'task-number'
+    num.textContent = String(index)
+    contents.push(num)
+  }
 
   const img = document.createElement('img')
   img.className = 'task-img'
@@ -35,6 +52,7 @@ function createTaskCard(task: any): HTMLDivElement {
   img.alt = task.modelName || 'Model'
   img.onerror = () => { img.src = ''; img.style.display = 'none' }
   if (!task.previewImage) img.style.display = 'none'
+  contents.push(img)
 
   const info = document.createElement('div')
   info.className = 'task-info'
@@ -70,14 +88,17 @@ function createTaskCard(task: any): HTMLDivElement {
     meta.textContent = task.status === 'queued' ? t('task-queued') : t('task-paused')
     info.append(name, meta)
   } else if (task.status === 'completed') {
-    meta.textContent = t('task-completed')
+    const dateStr = formatDate(task.completedAt)
+    meta.textContent = t('task-completed') + (dateStr ? ` · ${dateStr}` : '')
     info.append(name, meta)
   } else if (task.status === 'failed') {
     meta.textContent = task.error || t('task-failed')
     info.append(name, meta)
   }
 
-  card.append(img, info)
+  contents.push(info)
+
+  card.append(...contents)
 
   const actions = document.createElement('div')
   actions.className = 'task-actions'
@@ -224,10 +245,16 @@ function renderTasks(data: any) {
   const seen = new Set<string>()
 
   for (const section of ['active', 'queued', 'history'] as const) {
-    const tasks = data[section] || []
+    let tasks = data[section] || []
     const container = containers[section]!
 
-    for (const task of tasks) {
+    // History: oldest first with numbering
+    if (section === 'history') {
+      tasks = [...tasks].reverse()
+    }
+
+    for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i]
       seen.add(task.id)
       let card = container.querySelector(`[data-task-id="${task.id}"]`) as HTMLElement
       if (card) {
@@ -240,7 +267,8 @@ function renderTasks(data: any) {
           container.appendChild(moved)
           updateTaskCard(moved, task)
         } else {
-          card = createTaskCard(task)
+          const idx = section === 'history' ? i + 1 : undefined
+          card = createTaskCard(task, idx)
           container.appendChild(card)
         }
       }
@@ -390,6 +418,15 @@ function toggleHelp() {
   if (helpOpen) closeConfig()
 }
 
+function toggleHistory() {
+  const body = $('history-body')
+  const header = $('history-toggle')
+  if (!body || !header) return
+  historyOpen = !historyOpen
+  body.classList.toggle('open', historyOpen)
+  header.classList.toggle('open', historyOpen)
+}
+
 function closeConfig() {
   const panel = $('config-section')
   if (!panel) return
@@ -511,6 +548,7 @@ async function init() {
   $('toggle-config')!.onclick = toggleConfig
   $('toggle-help')!.onclick = toggleHelp
   $('cfg-save')!.onclick = saveConfig
+  $('history-toggle')!.onclick = toggleHistory
 
   const boosty = $('donate-boosty')
   if (boosty) boosty.onclick = (e) => { e.preventDefault(); chrome.tabs.create({ url: 'https://boosty.to/sir.geronis/donate' }) }

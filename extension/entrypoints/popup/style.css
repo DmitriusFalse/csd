@@ -126,6 +126,37 @@ section { display:flex; flex-direction:column; gap:6px; }
 
 .empty-state { font-size:11px; color:#6b7280; text-align:center; padding:8px; }
 
+.section-toggle {
+  cursor:pointer; user-select:none;
+  display:flex; align-items:center; gap:6px;
+}
+.section-toggle::after {
+  content:'▶'; font-size:9px; color:#6b7280;
+  transition:transform 0.2s;
+  display:inline-block;
+}
+.section-toggle.open::after {
+  transform:rotate(90deg);
+}
+
+.history-body {
+  max-height:0; overflow:hidden; opacity:0;
+  transition:max-height 0.25s ease, opacity 0.2s ease;
+  display:flex; flex-direction:column; gap:6px;
+}
+.history-body.open {
+  max-height:600px; opacity:1;
+}
+
+.task-number {
+  width:20px; height:20px; border-radius:50%;
+  background:#1e2d4a; color:#6b7280;
+  font-size:10px; font-weight:700;
+  display:flex; align-items:center; justify-content:center;
+  flex-shrink:0;
+}
+.task-date { font-size:10px; color:#6b7280; margin-top:1px; }
+
 footer { text-align:center; font-size:11px; color:#6b7280; padding-top:8px; border-top:1px solid #333; }
 
 .help-panel {

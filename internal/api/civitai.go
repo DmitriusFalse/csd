@@ -19,6 +19,7 @@ const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 
 type ModelInfoFetcher interface {
 	FetchModelInfo(modelVersionID int, apiKey string) (*models.CivitaiModelResponse, error)
+	FetchModelByID(modelID int, apiKey string) (*models.CivitaiModelDetailResponse, error)
 }
 
 type CivitaiClient struct {
@@ -155,6 +156,61 @@ func (c *CivitaiClient) FetchModelInfo(modelVersionID int, apiKey string) (*mode
 	}
 
 	return result, nil
+}
+
+func (c *CivitaiClient) FetchModelByID(modelID int, apiKey string) (*models.CivitaiModelDetailResponse, error) {
+	apiURL := fmt.Sprintf("%s/api/v1/models/%d", c.baseURL, modelID)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "application/json")
+
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		if models.IsNetworkError(err) {
+			return nil, models.NewAPIError(
+				models.ErrCodeNetwork,
+				fmt.Sprintf("Сетевая ошибка при подключении к Civitai: %s", err.Error()),
+				0, true,
+			)
+		}
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, models.ClassifyHTTPError(resp.StatusCode, string(body))
+	}
+
+	var result models.CivitaiModelDetailResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, models.NewAPIError(
+			models.ErrCodeServerError,
+			"Ошибка парсинга ответа от Civitai: "+err.Error(),
+			resp.StatusCode, false,
+		)
+	}
+
+	logger.Log.Debug("Fetched model by ID",
+		zap.Int("modelID", result.ID),
+		zap.String("name", result.Name),
+		zap.Int("versions", len(result.ModelVersions)),
+	)
+
+	return &result, nil
 }
 
 func ParseModelType(raw string) models.ModelType {

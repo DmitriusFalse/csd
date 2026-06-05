@@ -122,7 +122,7 @@ func (d *Downloader) Download(ctx context.Context, task *models.DownloadTask, on
 			return fmt.Errorf("create temp file: %w", err)
 		}
 	}
-	defer file.Close()
+	defer func() { file.Close() }()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
 	if err != nil {

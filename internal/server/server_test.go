@@ -32,6 +32,10 @@ func (m *mockCivitaiClient) FetchModelInfo(modelVersionID int, apiKey string) (*
 	}, nil
 }
 
+func (m *mockCivitaiClient) FetchModelByID(modelID int, apiKey string) (*models.CivitaiModelDetailResponse, error) {
+	return nil, nil
+}
+
 func newTestServer(t *testing.T, cfg *config.Config) (*Server, *downloader.Manager) {
 	t.Helper()
 	os.Remove(filepath.Join(cfg.RootPath, "queue.json"))
@@ -500,8 +504,9 @@ func TestCORSHeaders(t *testing.T) {
 	req := httptest.NewRequest("GET", "/health", nil)
 	req.Header.Set("Origin", "http://example.com")
 	resp, _ := s.app.Test(req)
-	if resp.Header.Get("Access-Control-Allow-Origin") != "*" {
-		t.Errorf("expected CORS header, got %s", resp.Header.Get("Access-Control-Allow-Origin"))
+	// CORS middleware removed - should not have CORS headers
+	if resp.Header.Get("Access-Control-Allow-Origin") != "" {
+		t.Errorf("expected no CORS header, got %s", resp.Header.Get("Access-Control-Allow-Origin"))
 	}
 }
 

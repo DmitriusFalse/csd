@@ -32,11 +32,19 @@ func sanitizeComponent(s string) string {
 	return s
 }
 
-func resolveBaseModelFolder(baseModel string) string {
+func ResolveBaseModelFolder(baseModel string) string {
 	if folder, ok := baseModelFolders[baseModel]; ok {
 		return folder
 	}
 	return sanitizeComponent(baseModel)
+}
+
+func SanitizeFileName(name string) string {
+	name = filepath.Base(name)
+	if strings.Contains(name, "..") || name == "." || name == "" {
+		return "model.safetensors"
+	}
+	return name
 }
 
 func GetSavePath(root string, modelType models.ModelType, baseModel string, isNSFW bool, nsfwSuffix string) string {
@@ -56,9 +64,13 @@ func GetSavePath(root string, modelType models.ModelType, baseModel string, isNS
 		typeFolder = "Other"
 	}
 
-	baseFolder := resolveBaseModelFolder(baseModel)
-
-	path := filepath.Join(root, typeFolder, baseFolder)
+	path := filepath.Join(root, typeFolder)
+	if baseModel != "" {
+		baseFolder := ResolveBaseModelFolder(baseModel)
+		if baseFolder != "" {
+			path = filepath.Join(path, baseFolder)
+		}
+	}
 	if isNSFW {
 		suffix := strings.TrimSpace(nsfwSuffix)
 		if suffix != "" {

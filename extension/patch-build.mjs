@@ -21,6 +21,14 @@ manifest.action = {
   default_icon: { '128': 'icons/default.png' },
 }
 
+// Inject build number if set by build.bat
+const buildNumber = process.env.CSD_BUILD_NUMBER
+if (buildNumber) {
+  const pkg = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'))
+  manifest.version = pkg.version + '.' + buildNumber
+  console.log('[patch] manifest version set to ' + manifest.version)
+}
+
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
 console.log('[patch] manifest.json updated with permissions, icons, action')
 

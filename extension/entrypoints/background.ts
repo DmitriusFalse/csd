@@ -45,7 +45,9 @@ function schedulePoll() {
 async function pollHealth() {
   const port = await getServerPort()
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/health`)
+    const res = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(5000)
+    })
     const data = await res.json()
     const active = (data.active || 0) + (data.queued || 0)
 
@@ -71,6 +73,7 @@ async function handleDownload(data: any, sendResponse: (r: any) => void) {
       modelVersionId: data.modelVersionId,
       fileId: data.fileId,
       modelName: data.modelName,
+      modelType: data.modelType,
       fileSize: data.fileSize,
       previewImage: data.previewImage,
       priority: data.priority || 1,
@@ -87,6 +90,7 @@ async function handleQueuedDownload(data: any, sendResponse: (r: any) => void) {
       modelVersionId: data.modelVersionId,
       fileId: data.fileId,
       modelName: data.modelName,
+      modelType: data.modelType,
       fileSize: data.fileSize,
       previewImage: data.previewImage,
       priority: data.priority || 3,
@@ -99,7 +103,9 @@ async function handleQueuedDownload(data: any, sendResponse: (r: any) => void) {
 
 async function handleHealthCheck(port: number, sendResponse: (r: any) => void) {
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/health`)
+    const res = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(5000)
+    })
     const data = await res.json()
     sendResponse(data)
   } catch {
@@ -114,7 +120,9 @@ async function handleCheckDownloaded(data: any, sendResponse: (r: any) => void) 
     if (data.modelId) params.set('modelId', data.modelId)
     if (data.modelVersionId) params.set('modelVersionId', String(data.modelVersionId))
     if (data.fileId) params.set('fileId', String(data.fileId))
-    const res = await fetch(`http://127.0.0.1:${port}/api/check-downloaded?${params}`)
+    const res = await fetch(`http://127.0.0.1:${port}/api/check-downloaded?${params}`, {
+      signal: AbortSignal.timeout(5000)
+    })
     const result = await res.json()
     sendResponse(result)
   } catch {
@@ -125,10 +133,16 @@ async function handleCheckDownloaded(data: any, sendResponse: (r: any) => void) 
 async function handleDownloadByModelID(data: any, sendResponse: (r: any) => void) {
   try {
     const port = await getServerPort()
+    const apiKey = await getApiKey()
+    const requestData = { ...data }
+    if (apiKey) {
+      requestData.apiKey = apiKey
+    }
     const res = await fetch(`http://127.0.0.1:${port}/api/download-by-model-id`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(requestData),
+      signal: AbortSignal.timeout(5000)
     })
     const result = await res.json()
     sendResponse(result)
@@ -174,11 +188,12 @@ async function sendDownloadRequest(request: {
     request.apiKey = savedKey
   }
 
-  const response = await fetch(`http://127.0.0.1:${port}/download`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  })
+   const response = await fetch(`http://127.0.0.1:${port}/download`, {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify(request),
+     signal: AbortSignal.timeout(5000)
+   })
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}))
